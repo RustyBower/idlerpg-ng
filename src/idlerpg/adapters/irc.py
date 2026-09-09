@@ -148,7 +148,6 @@ class IRCAdapter:
                 return
             self.bind(nick, player)
             self.notice(nick, f"Welcome, {player.name}. Now say nothing.")
-            self.say(f"{player.name}, the {player.character_class}, joins the realm.")
         elif verb == "LOGIN":
             if len(args) < 2:
                 self.notice(nick, "LOGIN <name> <password>")

@@ -119,7 +119,13 @@ class Engine:
             player.items.append(Item(slot=slot, value=0))
         self.session.add(player)
         self.session.commit()
-        self.log_event("register", f"{name} joins the realm as a {player.character_class}")
+        # Queued rather than announced here, so it reaches every platform
+        # instead of only the one the player happened to register on.
+        self._pending.append(Outcome(
+            f"{player.name}, the {player.character_class or 'nameless'}, "
+            f"joins the realm from {platform.value}!",
+            kind="register",
+        ))
         return player
 
     def find_player(self, name: str) -> Player | None:

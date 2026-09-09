@@ -203,3 +203,22 @@ class TestTopPlayers:
 
     def test_empty_realm_has_no_top_players(self, engine):
         assert engine.top_players() == []
+
+
+class TestRegistrationIsAnnouncedEverywhere:
+    def test_registering_queues_an_announcement(self, engine):
+        register(engine)
+        assert any(o.kind == "register" for o in engine._pending)
+
+    def test_the_announcement_is_delivered_by_the_next_tick(self, engine):
+        register(engine)
+        out = engine.tick(1)
+        assert any(o.kind == "register" and "joins the realm" in o.message for o in out)
+        # And only once - the queue is drained, not replayed.
+        assert not any(o.kind == "register" for o in engine.tick(1))
+
+    def test_it_names_the_platform_registered_from(self, engine):
+        from idlerpg.models import Platform
+        engine.register("d", "pw", "Memelord", Platform.DISCORD, "999")
+        msg = next(o.message for o in engine._pending if o.kind == "register")
+        assert "discord" in msg
