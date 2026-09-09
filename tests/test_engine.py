@@ -136,3 +136,52 @@ class TestLinking:
         engine.link(a, Platform.DISCORD, "shared")
         with pytest.raises(RegistrationError):
             engine.link(b, Platform.DISCORD, "shared")
+
+
+class TestLinkCodes:
+    """Linking requires already controlling the character, which is what keeps
+    someone from attaching themselves to another player's progress."""
+
+    def test_code_links_a_second_platform(self, engine):
+        p = register(engine)
+        code = engine.issue_link_code(p)
+        linked = engine.redeem_link_code(code, Platform.DISCORD, "999", "rusty#1")
+        assert linked.name == p.name
+        assert engine.player_for(Platform.DISCORD, "999").name == "rusty"
+
+    def test_codes_are_single_use(self, engine):
+        p = register(engine)
+        code = engine.issue_link_code(p)
+        engine.redeem_link_code(code, Platform.DISCORD, "999")
+        with pytest.raises(RegistrationError):
+            engine.redeem_link_code(code, Platform.DISCORD, "888")
+
+    def test_unknown_code_rejected(self, engine):
+        with pytest.raises(RegistrationError):
+            engine.redeem_link_code("NOPE1234", Platform.DISCORD, "999")
+
+    def test_expired_code_rejected(self, engine):
+        from datetime import timedelta
+        from idlerpg.models import LinkCode, utcnow
+        p = register(engine)
+        code = engine.issue_link_code(p)
+        entry = engine.session.query(LinkCode).filter_by(code=code).one()
+        entry.expires = utcnow() - timedelta(minutes=1)
+        engine.session.commit()
+        with pytest.raises(RegistrationError):
+            engine.redeem_link_code(code, Platform.DISCORD, "999")
+
+    def test_issuing_a_new_code_invalidates_the_old_one(self, engine):
+        p = register(engine)
+        first = engine.issue_link_code(p)
+        engine.issue_link_code(p)
+        with pytest.raises(RegistrationError):
+            engine.redeem_link_code(first, Platform.DISCORD, "999")
+
+    def test_linked_character_is_credited_once(self, engine):
+        """The whole point: two platforms, one character, one credit."""
+        p = register(engine)
+        code = engine.issue_link_code(p)
+        engine.redeem_link_code(code, Platform.DISCORD, "999")
+        engine.tick(100)
+        assert p.next_ttl == 500

@@ -43,12 +43,25 @@ class IRCConfig:
 
 
 @dataclass
+class DiscordConfig:
+    token: str = field(default_factory=lambda: os.environ.get("DISCORD_TOKEN", ""))
+    channel_id: int = field(
+        default_factory=lambda: int(os.environ.get("DISCORD_CHANNEL_ID", "0"))
+    )
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.token)
+
+
+@dataclass
 class Config:
     database_url: str = field(
         default_factory=lambda: os.environ.get("DATABASE_URL", "sqlite:///idlerpg.db")
     )
     tick_seconds: int = field(default_factory=lambda: int(os.environ.get("TICK_SECONDS", "5")))
     irc: IRCConfig = field(default_factory=IRCConfig)
+    discord: DiscordConfig = field(default_factory=DiscordConfig)
     curve: Curve = field(
         default_factory=lambda: Curve(
             base_seconds=int(os.environ.get("RP_BASE", "600")),

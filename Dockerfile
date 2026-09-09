@@ -2,7 +2,7 @@ FROM python:3.13.15-slim
 
 # psycopg is included so DATABASE_URL can point at Postgres later without
 # rebuilding; SQLite needs nothing extra.
-RUN pip install --no-cache-dir "SQLAlchemy>=2.0" "psycopg[binary]>=3.1"
+RUN pip install --no-cache-dir "SQLAlchemy>=2.0" "psycopg[binary]>=3.1" "discord.py>=2.3"
 
 WORKDIR /app
 COPY pyproject.toml README.md ./

@@ -166,6 +166,16 @@ class IRCAdapter:
                 return
             self.unbind(nick, Penalty.LOGOUT)
             self.notice(nick, "Logged out. Your timer took the usual penalty.")
+        elif verb == "LINK":
+            player = self.character_for_nick(nick)
+            if player is None:
+                self.notice(nick, "Log in first, then LINK.")
+                return
+            code = self.engine.issue_link_code(player)
+            self.notice(
+                nick,
+                f"Send this to the bot on Discord within 15 minutes: !link {code}",
+            )
         elif verb == "WHOAMI":
             player = self.character_for_nick(nick)
             if player is None:

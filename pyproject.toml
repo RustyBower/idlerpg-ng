@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "SQLAlchemy>=2.0",
+    "discord.py>=2.3",
 ]
 
 [project.optional-dependencies]

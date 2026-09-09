@@ -11,14 +11,20 @@ from __future__ import annotations
 import logging
 import os
 import random
+import secrets
+import string
+from datetime import timedelta
 from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import hash_password, verify_password
+from datetime import timezone
+
 from .models import (
     Alignment,
+    LinkCode,
     EventLog,
     Item,
     PenaltyRecord,
@@ -211,6 +217,47 @@ class Engine:
         )
         self.session.commit()
         return seconds
+
+    # ------------------------------------------------------------ linking
+
+    LINK_CODE_TTL = timedelta(minutes=15)
+
+    def issue_link_code(self, player: Player) -> str:
+        """Mint a code the player can redeem on another platform."""
+        alphabet = string.ascii_uppercase + string.digits
+        code = "".join(secrets.choice(alphabet) for _ in range(8))
+        self.session.query(LinkCode).filter(
+            LinkCode.player_id == player.id
+        ).delete()
+        self.session.add(
+            LinkCode(
+                code=code,
+                player_id=player.id,
+                expires=utcnow() + self.LINK_CODE_TTL,
+            )
+        )
+        self.session.commit()
+        return code
+
+    def redeem_link_code(self, code: str, platform: Platform,
+                         external_id: str, display_name: str = "") -> Player:
+        entry = self.session.scalar(
+            select(LinkCode).where(LinkCode.code == code.strip().upper())
+        )
+        if entry is None:
+            raise RegistrationError("that code is not valid")
+        expires = entry.expires
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < utcnow():
+            self.session.delete(entry)
+            self.session.commit()
+            raise RegistrationError("that code has expired")
+        player = self.session.get(Player, entry.player_id)
+        self.link(player, platform, external_id, display_name)
+        self.session.delete(entry)
+        self.session.commit()
+        return player
 
     # ----------------------------------------------------------------- events
 
