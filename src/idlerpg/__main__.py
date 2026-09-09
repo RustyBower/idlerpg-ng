@@ -70,8 +70,12 @@ def main() -> int:
             return f"{config.site_url} " + "; ".join(parts)
 
         async def topic_loop() -> None:
+            # Set it shortly after startup rather than making the first update
+            # wait a full cycle, then settle into the slow cadence.
+            delay = 60
             while True:
-                await asyncio.sleep(config.topic_seconds)
+                await asyncio.sleep(delay)
+                delay = config.topic_seconds
                 topic = build_topic()
                 if topic is None:
                     continue  # nothing to boast about yet
