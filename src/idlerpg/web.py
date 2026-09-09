@@ -238,6 +238,15 @@ padding:.1rem .42rem;border-radius:4px;margin-right:.3rem;border:1px solid var(-
 @media (prefers-color-scheme:dark){.plat.discord.live{color:#9aa6ff;border-color:#5865f2}}
 .plat.idle{opacity:.45}
 .plat.none{opacity:.4;border:none}
+/* Legend swatches use the pin fills directly, so the key cannot drift from
+   the map it describes. */
+.key{margin-right:.9rem;white-space:nowrap}
+.key i{display:inline-block;width:.62rem;height:.62rem;border-radius:50%;
+margin-right:.35rem;vertical-align:middle;border:2px solid var(--panel);
+box-shadow:0 0 0 1px var(--line)}
+.key i.k-irc{background:var(--accent)}
+.key i.k-discord{background:#5865f2}
+.key i.k-both{background:var(--on)}
 .feed{list-style:none;padding:0;margin:0}
 .feed li{padding:.5rem .1rem;border-bottom:1px solid var(--line);font-size:.93rem}
 .feed .when{color:var(--muted);font-variant-numeric:tabular-nums;
@@ -506,9 +515,9 @@ def page_map(players, quest):
   {grid}{quads}{goals}{"".join(marks)}
 </svg>
 <p class="muted">
-  <span class="plat irc live">IRC</span>
-  <span class="plat discord live">Discord</span>
-  <span class="plat none">both</span>
+  <span class="key"><i class="k-irc"></i>IRC</span>
+  <span class="key"><i class="k-discord"></i>Discord</span>
+  <span class="key"><i class="k-both"></i>both</span>
   &nbsp; Filled pins are online; faded ones are not. {note}
   The realm is {MAP_X}&times;{MAP_Y} and players drift a step at a time while they idle.
 </p>"""
