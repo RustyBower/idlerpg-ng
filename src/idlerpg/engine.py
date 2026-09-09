@@ -25,6 +25,7 @@ from datetime import timezone
 from .models import (
     Alignment,
     LinkCode,
+    Setting,
     EventLog,
     Item,
     PenaltyRecord,
@@ -307,6 +308,20 @@ class Engine:
         self.session.delete(entry)
         self.session.commit()
         return player
+
+    # --------------------------------------------------------------- settings
+
+    def get_setting(self, key: str) -> str | None:
+        row = self.session.get(Setting, key)
+        return row.value if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        row = self.session.get(Setting, key)
+        if row is None:
+            self.session.add(Setting(key=key, value=value))
+        else:
+            row.value = value
+        self.session.commit()
 
     # ----------------------------------------------------------------- events
 

@@ -68,7 +68,13 @@ def main() -> int:
                 # installed when only IRC is configured.
                 from .adapters.discord_adapter import DiscordAdapter
 
-                discord_bot = DiscordAdapter(engine, config.discord.channel_id or None)
+                discord_bot = DiscordAdapter(
+                    engine,
+                    config.discord.channel_id or None,
+                    optin_channel_id=config.discord.optin_channel_id,
+                    optin_role_id=config.discord.optin_role_id,
+                    optin_emoji=config.discord.optin_emoji,
+                )
                 adapters.append(discord_bot)
                 log.info("starting Discord adapter")
                 tasks.append(

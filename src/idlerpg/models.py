@@ -175,6 +175,16 @@ class LinkCode(Base):
     expires: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class Setting(Base):
+    """Small key/value store for things the bot must remember across restarts,
+    such as which message is the Discord opt-in post."""
+
+    __tablename__ = "setting"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(255))
+
+
 class EventLog(Base):
     """Quests, battles, godsends and calamities, for the site and for replay."""
 

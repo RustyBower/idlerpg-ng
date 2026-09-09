@@ -49,9 +49,26 @@ class DiscordConfig:
         default_factory=lambda: int(os.environ.get("DISCORD_CHANNEL_ID", "0"))
     )
 
+    # Click-to-opt-in: the bot keeps a message in this channel, and reacting
+    # to it grants the role that can see the game channel. Needs Manage Roles,
+    # and the role must sit below the bot's own in the hierarchy.
+    optin_channel_id: int = field(
+        default_factory=lambda: int(os.environ.get("DISCORD_OPTIN_CHANNEL_ID", "0"))
+    )
+    optin_role_id: int = field(
+        default_factory=lambda: int(os.environ.get("DISCORD_OPTIN_ROLE_ID", "0"))
+    )
+    optin_emoji: str = field(
+        default_factory=lambda: os.environ.get("DISCORD_OPTIN_EMOJI", "\N{GAME DIE}")
+    )
+
     @property
     def enabled(self) -> bool:
         return bool(self.token)
+
+    @property
+    def optin_enabled(self) -> bool:
+        return bool(self.optin_channel_id and self.optin_role_id)
 
 
 @dataclass

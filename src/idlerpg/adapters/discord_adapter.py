@@ -38,15 +38,109 @@ HELP = (
 )
 
 
+OPTIN_MESSAGE_KEY = "discord_optin_message_id"
+
+OPTIN_TEXT = (
+    "**IdleRPG**\n"
+    "React with {emoji} to get access to the game channel. "
+    "Remove your reaction to leave again.\n\n"
+    "Nothing happens to you for joining: you only start playing once you "
+    "register a character, and the game ignores everyone else entirely."
+)
+
+
 class DiscordAdapter(discord.Client):
-    def __init__(self, engine: Engine, channel_id: int | None = None):
+    def __init__(self, engine: Engine, channel_id: int | None = None,
+                 optin_channel_id: int = 0, optin_role_id: int = 0,
+                 optin_emoji: str = "\N{GAME DIE}"):
         intents = discord.Intents.default()
         intents.presences = True
         intents.members = True
         intents.message_content = True
+        intents.reactions = True
         super().__init__(intents=intents)
         self.engine = engine
         self.channel_id = channel_id
+        self.optin_channel_id = optin_channel_id
+        self.optin_role_id = optin_role_id
+        self.optin_emoji = optin_emoji
+
+    @property
+    def optin_enabled(self) -> bool:
+        return bool(self.optin_channel_id and self.optin_role_id)
+
+    # --------------------------------------------------------------- opt-in
+
+    async def ensure_optin_message(self) -> None:
+        """Post the opt-in message once and remember which one it is.
+
+        The id is stored so a restart reuses the existing post rather than
+        littering the channel with a new one every time the bot starts.
+        """
+        if not self.optin_enabled:
+            return
+        channel = self.get_channel(self.optin_channel_id)
+        if channel is None:
+            log.warning("opt-in channel %s not visible", self.optin_channel_id)
+            return
+
+        stored = self.engine.get_setting(OPTIN_MESSAGE_KEY)
+        if stored:
+            try:
+                await channel.fetch_message(int(stored))
+                return  # still there, nothing to do
+            except (discord.NotFound, discord.HTTPException, ValueError):
+                log.info("opt-in message is gone; posting a new one")
+
+        try:
+            message = await channel.send(OPTIN_TEXT.format(emoji=self.optin_emoji))
+            await message.add_reaction(self.optin_emoji)
+        except discord.HTTPException:
+            log.exception("could not post the opt-in message")
+            return
+        self.engine.set_setting(OPTIN_MESSAGE_KEY, str(message.id))
+        log.info("posted opt-in message %s", message.id)
+
+    def _is_optin_reaction(self, payload) -> bool:
+        if not self.optin_enabled or payload.guild_id is None:
+            return False
+        stored = self.engine.get_setting(OPTIN_MESSAGE_KEY)
+        if not stored or str(payload.message_id) != stored:
+            return False
+        return str(payload.emoji) == self.optin_emoji
+
+    async def on_raw_reaction_add(self, payload) -> None:
+        if not self._is_optin_reaction(payload):
+            return
+        guild = self.get_guild(payload.guild_id)
+        role = guild.get_role(self.optin_role_id) if guild else None
+        member = payload.member or (guild.get_member(payload.user_id) if guild else None)
+        if role is None or member is None or member.bot:
+            return
+        try:
+            await member.add_roles(role, reason="IdleRPG opt-in")
+            log.info("opted in %s", member)
+        except discord.Forbidden:
+            # Almost always the role sitting above the bot's own in the list.
+            log.warning("cannot grant %s - check Manage Roles and role order", role)
+        except discord.HTTPException:
+            log.exception("failed granting the opt-in role")
+
+    async def on_raw_reaction_remove(self, payload) -> None:
+        if not self._is_optin_reaction(payload):
+            return
+        guild = self.get_guild(payload.guild_id)
+        role = guild.get_role(self.optin_role_id) if guild else None
+        member = guild.get_member(payload.user_id) if guild else None
+        if role is None or member is None:
+            return
+        try:
+            await member.remove_roles(role, reason="IdleRPG opt-out")
+            log.info("opted out %s", member)
+        except discord.Forbidden:
+            log.warning("cannot remove %s - check Manage Roles and role order", role)
+        except discord.HTTPException:
+            log.exception("failed removing the opt-in role")
 
     async def announce(self, text: str) -> None:
         """Post to the game channel, if one is configured and reachable."""
@@ -64,6 +158,7 @@ class DiscordAdapter(discord.Client):
 
     async def on_ready(self) -> None:
         log.info("connected to Discord as %s", self.user)
+        await self.ensure_optin_message()
         # Seed presence for everyone already visible, otherwise nobody accrues
         # time until they next change status.
         for guild in self.guilds:
