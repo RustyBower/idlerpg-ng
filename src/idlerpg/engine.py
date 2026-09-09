@@ -34,12 +34,22 @@ from .models import (
     Presence,
     utcnow,
 )
+from . import events
+from .events import Outcome
 from .rules import Curve, Penalty, penalty_seconds, ttl
 
 log = logging.getLogger(__name__)
 
 MAP_X = int(os.environ.get("MAP_X", "500"))
 MAP_Y = int(os.environ.get("MAP_Y", "500"))
+
+
+def events_map_x() -> int:
+    return MAP_X
+
+
+def events_map_y() -> int:
+    return MAP_Y
 
 ITEM_SLOTS = (
     "amulet", "charm", "helm", "boots", "gloves",
@@ -52,6 +62,9 @@ class LevelUp:
     player: str
     level: int
     next_ttl: int
+
+
+BATTLE_CHECK_SECONDS = 3600  # the original challenges someone once an hour
 
 
 class RegistrationError(Exception):
@@ -164,39 +177,75 @@ class Engine:
 
     # ------------------------------------------------------------------ clock
 
-    def tick(self, elapsed_seconds: float) -> list[LevelUp]:
+    def tick(self, elapsed_seconds: float) -> list[Outcome]:
         """Advance the world by ``elapsed_seconds``.
 
         Every player idling on at least one platform spends that many seconds
-        off their timer - once, no matter how many platforms they are on.
+        off their timer - once, no matter how many platforms they are on - and
+        then the world gets its turn: items found, blessings, calamities,
+        battles and drifting across the map.
         """
         if elapsed_seconds <= 0:
             return []
 
         players = self.session.scalars(
-            select(Player).options(selectinload(Player.identities))
+            select(Player)
+            .options(selectinload(Player.identities), selectinload(Player.items))
         ).all()
 
-        levelled: list[LevelUp] = []
-        for player in players:
-            if not player.is_idling:
-                continue
+        announcements: list[Outcome] = []
+        online = [p for p in players if p.is_idling]
+
+        for player in online:
             remaining = player.next_ttl - elapsed_seconds
             while remaining <= 0:
                 player.level += 1
-                cost = int(ttl(player.level, self.curve))
-                remaining += cost
-                levelled.append(LevelUp(player.name, player.level, cost))
-                self.log_event(
-                    "levelup",
+                remaining += int(ttl(player.level, self.curve))
+                announcements.append(Outcome(
                     f"{player.name}, the {player.character_class or 'nameless'}, "
-                    f"has attained level {player.level}",
-                    commit=False,
-                )
+                    f"has attained level {player.level}!",
+                    kind="levelup",
+                ))
+                # Levelling is when the original hands out loot.
+                found = events.find_item(player, self.rng)
+                if found:
+                    announcements.append(found)
             player.next_ttl = int(remaining)
 
+        announcements.extend(self._world_events(online, elapsed_seconds))
+
+        for player in online:
+            events.move_player(player, events_map_x(), events_map_y(), self.rng)
+
+        for outcome in announcements:
+            self.log_event(outcome.kind, outcome.message, commit=False)
         self.session.commit()
-        return levelled
+        return announcements
+
+    def _world_events(self, online: list[Player],
+                      elapsed: float) -> list[Outcome]:
+        """Roll the periodic events, weighted by how many people are around."""
+        out: list[Outcome] = []
+        if not online:
+            return out
+        count = len(online)
+
+        if events.should_fire(events.HOG_INTERVAL, elapsed, count, self.rng):
+            out.append(events.hand_of_god(self.rng.choice(online), self.rng))
+        if events.should_fire(events.CALAMITY_INTERVAL, elapsed, count, self.rng):
+            out.append(events.calamity(self.rng.choice(online), self.rng))
+        if events.should_fire(events.GODSEND_INTERVAL, elapsed, count, self.rng):
+            out.append(events.godsend(self.rng.choice(online), self.rng))
+
+        # Battles are checked on the hour in the original rather than rolled
+        # continuously, so scale a once-an-hour chance by the tick length.
+        if len(online) > 1 and self.rng.random() < elapsed / BATTLE_CHECK_SECONDS:
+            challenger = self.rng.choice(online)
+            # Below level 25 most challenges are declined, as in bot.pl.
+            if challenger.level >= 25 or self.rng.randrange(4) < 1:
+                opponent = self.rng.choice([p for p in online if p is not challenger])
+                out.extend(events.battle(challenger, opponent, self.rng))
+        return out
 
     # -------------------------------------------------------------- penalties
 

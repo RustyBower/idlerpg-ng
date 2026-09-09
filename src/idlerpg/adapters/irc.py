@@ -267,25 +267,21 @@ class IRCAdapter:
             if self.writer:
                 await self.writer.drain()
 
-    async def _tick_loop(self) -> None:
-        while True:
-            await asyncio.sleep(self.tick_seconds)
-            try:
-                for up in self.engine.tick(self.tick_seconds):
-                    self.say(
-                        f"{up.player} has attained level {up.level}! "
-                        f"Next level in {up.next_ttl}s."
-                    )
-                if self.writer:
-                    await self.writer.drain()
-            except Exception:
-                log.exception("tick failed")
+    async def announce(self, text: str) -> None:
+        """Say something in the game channel, if we are connected."""
+        if self.writer is None:
+            return
+        self.say(text)
+        try:
+            await self.writer.drain()
+        except Exception:
+            log.debug("could not flush announcement")
 
     async def run_forever(self) -> None:
         while True:
             try:
                 await self.connect()
-                await asyncio.gather(self._read_loop(), self._tick_loop())
+                await self._read_loop()
             except Exception as exc:
                 log.warning("disconnected: %s", exc)
             # Everyone loses presence when the link drops; they are not online

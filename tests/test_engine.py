@@ -85,14 +85,17 @@ class TestClock:
     def test_levelling_up_resets_the_timer(self, engine):
         p = register(engine)
         ups = engine.tick(600)
-        assert [(u.player, u.level) for u in ups] == [("rusty", 1)]
+        levels = [o for o in ups if o.kind == "levelup"]
+        assert len(levels) == 1
+        assert "attained level 1" in levels[0].message
         assert p.level == 1
         assert p.next_ttl == pytest.approx(int(600 * 1.12), abs=1)
 
     def test_a_long_tick_can_grant_several_levels(self, engine):
         p = register(engine)
         ups = engine.tick(600 + 672 + 752)  # levels 1, 2 and 3
-        assert [u.level for u in ups] == [1, 2, 3]
+        levels = [o for o in ups if o.kind == "levelup"]
+        assert len(levels) == 3
         assert p.level == 3
 
     def test_zero_or_negative_ticks_do_nothing(self, engine):

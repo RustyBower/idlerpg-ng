@@ -48,6 +48,18 @@ class DiscordAdapter(discord.Client):
         self.engine = engine
         self.channel_id = channel_id
 
+    async def announce(self, text: str) -> None:
+        """Post to the game channel, if one is configured and reachable."""
+        if not self.channel_id:
+            return
+        channel = self.get_channel(self.channel_id)
+        if channel is None:
+            return
+        try:
+            await channel.send(text)
+        except discord.HTTPException:
+            log.debug("could not announce to Discord")
+
     # ---------------------------------------------------------------- events
 
     async def on_ready(self) -> None:

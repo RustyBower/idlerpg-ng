@@ -36,14 +36,40 @@ def main() -> int:
             "connecting to %s:%s as %s in %s",
             config.irc.host, config.irc.port, config.irc.nick, config.irc.channel,
         )
+        adapters: list = [adapter]
+
+        async def tick_loop() -> None:
+            """The clock lives here, not in an adapter.
+
+            One tick drives the whole world and its announcements go to every
+            platform, so nobody is credited twice and neither side is silent.
+            """
+            while True:
+                await asyncio.sleep(config.tick_seconds)
+                try:
+                    outcomes = engine.tick(config.tick_seconds)
+                except Exception:
+                    log.exception("tick failed")
+                    continue
+                for outcome in outcomes:
+                    for a in adapters:
+                        try:
+                            await a.announce(outcome.message)
+                        except Exception:
+                            log.debug("announce failed", exc_info=True)
+
         async def run_all() -> None:
-            tasks = [asyncio.create_task(adapter.run_forever())]
+            tasks = [
+                asyncio.create_task(adapter.run_forever()),
+                asyncio.create_task(tick_loop()),
+            ]
             if config.discord.enabled:
                 # Imported lazily so the bot still starts without discord.py
                 # installed when only IRC is configured.
                 from .adapters.discord_adapter import DiscordAdapter
 
                 discord_bot = DiscordAdapter(engine, config.discord.channel_id or None)
+                adapters.append(discord_bot)
                 log.info("starting Discord adapter")
                 tasks.append(
                     asyncio.create_task(discord_bot.start(config.discord.token))
