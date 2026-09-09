@@ -175,6 +175,45 @@ class LinkCode(Base):
     expires: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class Quest(Base):
+    """The realm runs one quest at a time; this is it.
+
+    Type 1 is a wait: the party simply has to stay online until the clock runs
+    out. Type 2 is a journey to two map waypoints in turn. Either way a quester
+    who talks, parts or quits fails it for everyone.
+    """
+
+    __tablename__ = "quest"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    text: Mapped[str] = mapped_column(String(512))
+    kind: Mapped[int] = mapped_column(Integer, default=1)   # 1 timed, 2 journey
+    stage: Mapped[int] = mapped_column(Integer, default=1)  # journey only
+    expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Journey waypoints, only meaningful for kind 2.
+    x1: Mapped[int] = mapped_column(Integer, default=0)
+    y1: Mapped[int] = mapped_column(Integer, default=0)
+    x2: Mapped[int] = mapped_column(Integer, default=0)
+    y2: Mapped[int] = mapped_column(Integer, default=0)
+
+    participants: Mapped[list["QuestParticipant"]] = relationship(
+        back_populates="quest", cascade="all, delete-orphan"
+    )
+
+
+class QuestParticipant(Base):
+    __tablename__ = "quest_participant"
+    __table_args__ = (UniqueConstraint("quest_id", "player_id", name="uq_quest_player"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    quest_id: Mapped[int] = mapped_column(ForeignKey("quest.id", ondelete="CASCADE"))
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id", ondelete="CASCADE"))
+
+    quest: Mapped[Quest] = relationship(back_populates="participants")
+    player: Mapped[Player] = relationship()
+
+
 class Setting(Base):
     """Small key/value store for things the bot must remember across restarts,
     such as which message is the Discord opt-in post."""

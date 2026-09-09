@@ -10,6 +10,7 @@ Numbers and formulas are taken from bot.pl, not invented.
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
 
@@ -226,3 +227,136 @@ def should_fire(interval_seconds: float, elapsed: float, weight: float,
     if weight <= 0 or elapsed <= 0:
         return False
     return rng.random() < (elapsed * weight) / interval_seconds
+
+
+GOODNESS_INTERVAL = 12 * DAY
+EVILNESS_INTERVAL = 8 * DAY
+
+
+def team_battle(online: list, rng: random.Random, map_x: int,
+                map_y: int) -> list[Outcome]:
+    """Six players nearest a random point, split into two teams of three.
+
+    The teams are formed geometrically rather than at random: sort the six by
+    angle around the chosen point and cut the ring in a random place, so
+    neighbours on the map fight side by side.
+    """
+    if len(online) < 6:
+        return []
+    x, y = rng.randrange(map_x), rng.randrange(map_y)
+
+    def distance(p):
+        return math.hypot(p.x - x, p.y - y)
+
+    nearest = sorted(online, key=distance)[:6]
+    nearest.sort(key=lambda p: math.atan2(p.y - y, p.x - x))
+    rot = rng.randrange(6)
+    ring = nearest[rot:] + nearest[:rot]
+    team_a, team_b = ring[:3], ring[3:]
+
+    sum_a = max(1, sum(item_sum(p) for p in team_a))
+    sum_b = max(1, sum(item_sum(p) for p in team_b))
+    # The stake is a fifth of whichever winner has least left to do, so a
+    # veteran cannot farm newcomers for enormous gains.
+    gain = int(min(p.next_ttl for p in team_a) * 0.20)
+    roll_a, roll_b = rng.randrange(sum_a), rng.randrange(sum_b)
+
+    names_a = ", ".join(p.name for p in team_a)
+    names_b = ", ".join(p.name for p in team_b)
+    if roll_a >= roll_b:
+        for p in team_a:
+            p.next_ttl = max(1, p.next_ttl - gain)
+        verdict = f"won! {gain}s is removed from their clocks"
+    else:
+        for p in team_a:
+            p.next_ttl += gain
+        verdict = f"lost! {gain}s is added to their clocks"
+    return [Outcome(
+        f"{names_a} [{roll_a}/{sum_a}] have team battled {names_b} "
+        f"[{roll_b}/{sum_b}] at [{x},{y}] and {verdict}.",
+        kind="battle",
+    )]
+
+
+QUADRANTS = ("Northeast", "Southeast", "Southwest", "Northwest")
+
+
+def war(online: list, rng: random.Random, map_x: int, map_y: int) -> list[Outcome]:
+    """The four quadrants of the map fight; a quadrant wins by beating both
+    of its neighbours."""
+    if len(online) < 4:
+        return []
+    sums = [0, 0, 0, 0]
+    for p in online:
+        if 2 * p.y + 1 < map_y:
+            q = 3 if 2 * p.x + 1 < map_x else 0
+        elif 2 * p.y + 1 > map_y:
+            q = 2 if 2 * p.x + 1 < map_x else 1
+        else:
+            continue  # exactly on the meridian, in no quadrant
+        sums[q] += item_sum(p)
+
+    if not any(sums):
+        return []
+    rolls = [rng.randrange(s) if s else 0 for s in sums]
+    winners = [
+        i for i in range(4)
+        if rolls[i] >= rolls[(i + 1) % 4] and rolls[i] >= rolls[(i + 3) % 4]
+    ]
+    if not winners:
+        return []
+    named = " and ".join(QUADRANTS[i] for i in winners)
+    detail = ", ".join(f"{QUADRANTS[i]} [{rolls[i]}/{sums[i]}]" for i in range(4))
+    return [Outcome(
+        f"The quadrants went to war: {detail}. {named} prevailed.",
+        kind="war",
+    )]
+
+
+def goodness(online: list, rng: random.Random) -> list[Outcome]:
+    """Two good players help each other along."""
+    good = [p for p in online if p.alignment.value == "good"]
+    if len(good) < 2:
+        return []
+    a, b = rng.sample(good, 2)
+    percent = 5 + rng.randrange(8)
+    for p in (a, b):
+        p.next_ttl = max(1, int(p.next_ttl * (1 - percent / 100)))
+    return [Outcome(
+        f"{a.name} and {b.name} have not let the iniquities of evil men "
+        f"poison them. Together they have prayed to their god, and are "
+        f"rewarded {percent}% of their time toward the next level.",
+        kind="goodness",
+    )]
+
+
+def evilness(online: list, rng: random.Random) -> list[Outcome]:
+    """Evil pays about half the time; otherwise it costs."""
+    evil = [p for p in online if p.alignment.value == "evil"]
+    if not evil:
+        return []
+    me = rng.choice(evil)
+
+    if rng.randrange(2) < 1:
+        good = [p for p in online if p.alignment.value == "good"]
+        if good:
+            target = rng.choice(good)
+            slot = rng.choice(list(SLOTS))
+            mine = next((i for i in me.items if i.slot == slot), None)
+            theirs = next((i for i in target.items if i.slot == slot), None)
+            if mine is not None and theirs is not None and theirs.value > mine.value:
+                mine.value, theirs.value = theirs.value, mine.value
+                mine.tag, theirs.tag = theirs.tag, mine.tag
+                return [Outcome(
+                    f"{me.name} stole {target.name}'s level {mine.value} "
+                    f"{SLOTS[slot]} while they were sleeping!",
+                    kind="evilness",
+                )]
+    percent = 1 + rng.randrange(5)
+    added = int(me.next_ttl * (percent / 100))
+    me.next_ttl += added
+    return [Outcome(
+        f"{me.name} is forsaken by their evil god. {added}s is added to "
+        f"their clock.",
+        kind="evilness",
+    )]

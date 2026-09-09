@@ -35,7 +35,7 @@ from .models import (
     Presence,
     utcnow,
 )
-from . import events
+from . import events, quests
 from .events import Outcome
 from .rules import Curve, Penalty, penalty_seconds, ttl
 
@@ -78,6 +78,9 @@ class Engine:
         self.session = session
         self.curve = curve or Curve()
         self.rng = rng or random.Random()
+        # Things that happened outside a tick (a quest failing because someone
+        # spoke) and still need announcing on the next one.
+        self._pending: list[Outcome] = []
 
     # ---------------------------------------------------------------- players
 
@@ -194,7 +197,8 @@ class Engine:
             .options(selectinload(Player.identities), selectinload(Player.items))
         ).all()
 
-        announcements: list[Outcome] = []
+        announcements: list[Outcome] = list(self._pending)
+        self._pending.clear()
         online = [p for p in players if p.is_idling]
 
         for player in online:
@@ -214,6 +218,7 @@ class Engine:
             player.next_ttl = int(remaining)
 
         announcements.extend(self._world_events(online, elapsed_seconds))
+        announcements.extend(self._quest_events(online, elapsed_seconds))
 
         for player in online:
             events.move_player(player, events_map_x(), events_map_y(), self.rng)
@@ -238,6 +243,22 @@ class Engine:
         if events.should_fire(events.GODSEND_INTERVAL, elapsed, count, self.rng):
             out.append(events.godsend(self.rng.choice(online), self.rng))
 
+        if events.should_fire(events.TEAM_BATTLE_INTERVAL, elapsed, count, self.rng):
+            out.extend(events.team_battle(
+                online, self.rng, events_map_x(), events_map_y()))
+        if events.should_fire(events.GOODNESS_INTERVAL, elapsed,
+                              sum(1 for p in online if p.alignment.value == "good"),
+                              self.rng):
+            out.extend(events.goodness(online, self.rng))
+        if events.should_fire(events.EVILNESS_INTERVAL, elapsed,
+                              sum(1 for p in online if p.alignment.value == "evil"),
+                              self.rng):
+            out.extend(events.evilness(online, self.rng))
+        # War is not weighted by headcount in the original: the realm gets one
+        # on its own schedule regardless of how many are about.
+        if events.should_fire(events.WAR_INTERVAL, elapsed, 1, self.rng):
+            out.extend(events.war(online, self.rng, events_map_x(), events_map_y()))
+
         # Battles are checked on the hour in the original rather than rolled
         # continuously, so scale a once-an-hour chance by the tick length.
         if len(online) > 1 and self.rng.random() < elapsed / BATTLE_CHECK_SECONDS:
@@ -246,6 +267,22 @@ class Engine:
             if challenger.level >= 25 or self.rng.randrange(4) < 1:
                 opponent = self.rng.choice([p for p in online if p is not challenger])
                 out.extend(events.battle(challenger, opponent, self.rng))
+        return out
+
+    def _quest_events(self, online: list[Player], elapsed: float) -> list[Outcome]:
+        """Start a quest if there is none, otherwise move the current one on."""
+        out: list[Outcome] = []
+        quest = quests.active_quest(self.session)
+        if quest is None:
+            # Roughly one attempt per six hours, matching the original cooldown.
+            if self.rng.random() < elapsed / quests.COOLDOWN.total_seconds():
+                started = quests.start(
+                    self.session, online, self.rng, events_map_x(), events_map_y()
+                )
+                if started:
+                    out.append(started)
+        else:
+            out.extend(quests.advance(self.session, quest, self.rng))
         return out
 
     # -------------------------------------------------------------- penalties
@@ -257,6 +294,9 @@ class Engine:
             kind, player.level, self.curve, message_length=message_length
         )
         player.next_ttl += seconds
+        if kind is not Penalty.QUEST:
+            # A quester who talks, parts or quits fails it for everyone.
+            self._pending.extend(quests.fail(self.session, player))
         self.session.add(
             PenaltyRecord(
                 player_id=player.id,
