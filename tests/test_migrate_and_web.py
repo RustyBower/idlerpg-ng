@@ -106,3 +106,26 @@ class TestWebDataLayer:
         monkeypatch.setattr(web, "_engine", None)
         assert web.load_players() == []
         assert web.load_quest() is None
+
+
+class TestHealthReflectsTheDatabase:
+    """A site that cannot reach its database must not report itself healthy."""
+
+    def test_unreachable_database_is_not_healthy(self, monkeypatch):
+        from sqlalchemy.orm import Session
+        from sqlalchemy import select, func
+        from idlerpg.models import Player
+        monkeypatch.setattr(web, "DATABASE_URL", "postgresql+psycopg://x:y@127.0.0.1:1/none")
+        monkeypatch.setattr(web, "_engine", None)
+        with pytest.raises(Exception):
+            with Session(web.db()) as s:
+                s.execute(select(func.count()).select_from(Player))
+
+    def test_reachable_database_is_healthy(self, source, monkeypatch):
+        from sqlalchemy.orm import Session
+        from sqlalchemy import select, func
+        from idlerpg.models import Player
+        monkeypatch.setattr(web, "DATABASE_URL", source)
+        monkeypatch.setattr(web, "_engine", None)
+        with Session(web.db()) as s:
+            assert s.execute(select(func.count()).select_from(Player)).scalar() == 2

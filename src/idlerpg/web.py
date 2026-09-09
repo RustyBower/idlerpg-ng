@@ -743,6 +743,16 @@ class Handler(BaseHTTPRequestHandler):
                 "application/json",
             )
         elif path in ("/healthz", "/health"):
+            # Actually touch the database. Returning ok while unable to reach
+            # it would let a misconfigured deployment serve an empty realm and
+            # look healthy, which is exactly how a bad DATABASE_URL hid once.
+            try:
+                with Session(db()) as s:
+                    s.execute(select(func.count()).select_from(Player))
+            except Exception:
+                self._send("database unreachable", "text/plain; charset=utf-8",
+                           status=503)
+                return
             self._send("ok", "text/plain; charset=utf-8")
         else:
             self._send(
