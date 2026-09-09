@@ -74,6 +74,9 @@ class Player(Base):
         Enum(Alignment), default=Alignment.NEUTRAL
     )
     is_admin: Mapped[bool] = mapped_column(default=False)
+    # Position in the realm, for the map and journey quests.
+    x: Mapped[int] = mapped_column(Integer, default=0)
+    y: Mapped[int] = mapped_column(Integer, default=0)
     created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
