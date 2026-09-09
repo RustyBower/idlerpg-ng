@@ -71,6 +71,8 @@ class IRCAdapter:
         self.writer: asyncio.StreamWriter | None = None
         # nick -> character name, for this connection only
         self.bound: dict[str, str] = {}
+        # Only attempt self-registration once per connection.
+        self.registration_attempted = False
 
     # ------------------------------------------------------------------ wire
 
@@ -177,6 +179,21 @@ class IRCAdapter:
         else:
             self.notice(nick, HELP)
 
+    def handle_notice(self, msg: Message) -> None:
+        """Watch for services telling us our own nick is unregistered."""
+        if msg.nick.lower() != "nickserv":
+            return
+        text = msg.text.lower()
+        if self.registration_attempted or not self.cfg.nickserv_email:
+            return
+        if "not registered" in text or "isn\'t registered" in text:
+            self.registration_attempted = True
+            log.info("nick is unregistered; registering with services")
+            self.send(
+                f"PRIVMSG NickServ :REGISTER {self.cfg.nickserv_password} "
+                f"{self.cfg.nickserv_email}"
+            )
+
     # --------------------------------------------------------------- dispatch
 
     def handle(self, msg: Message) -> None:
@@ -188,7 +205,14 @@ class IRCAdapter:
                 self.send(
                     f"PRIVMSG NickServ :IDENTIFY {self.cfg.nickserv_password}"
                 )
+                if self.cfg.nickserv_email:
+                    # Provokes "not registered" if it isn't, which drives
+                    # handle_notice() into registering the nick.
+                    self.send(f"PRIVMSG NickServ :INFO {self.cfg.nick}")
+            self.registration_attempted = False
             self.send(f"JOIN {self.cfg.channel}")
+        elif cmd == "NOTICE":
+            self.handle_notice(msg)
         elif cmd == "PRIVMSG":
             target = msg.params[0] if msg.params else ""
             if target.lower() == self.cfg.channel.lower():

@@ -30,6 +30,13 @@ class IRCConfig:
     nickserv_password: str = field(
         default_factory=lambda: os.environ.get("IRC_NICKSERV_PASSWORD", "")
     )
+    # If set, the bot registers its own nick the first time services tell it
+    # the nick is unregistered. Anope runs db_sql here, which overwrites any
+    # row not written by Anope itself, so registering through NickServ is the
+    # only path that sticks.
+    nickserv_email: str = field(
+        default_factory=lambda: os.environ.get("IRC_NICKSERV_EMAIL", "")
+    )
     reconnect_seconds: int = field(
         default_factory=lambda: int(os.environ.get("IRC_RECONNECT_SECONDS", "30"))
     )

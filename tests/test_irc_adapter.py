@@ -136,3 +136,50 @@ class TestPenaltiesAndPresence:
         """Someone talking without a character must not raise."""
         feed(adapter, ":nobody!u@h PRIVMSG #idlerpg :hello")
         feed(adapter, ":nobody!u@h QUIT :bye")
+
+
+class TestNickServSelfRegistration:
+    """Anope here runs db_sql, which overwrites rows it did not write itself,
+    so registering through NickServ is the only thing that sticks."""
+
+    def _configured(self, adapter, email="ops@129irc.com", password="s3cret"):
+        adapter.cfg.nickserv_email = email
+        adapter.cfg.nickserv_password = password
+        return adapter
+
+    def test_registers_when_services_say_unregistered(self, adapter):
+        self._configured(adapter)
+        feed(adapter, ":NickServ!s@services PRIVMSG idlerpg :hi")  # not a NOTICE
+        feed(adapter, ":NickServ!s@services NOTICE idlerpg :Nick idlerpg is not registered.")
+        assert "PRIVMSG NickServ :REGISTER s3cret ops@129irc.com" in sent(adapter)
+
+    def test_only_registers_once_per_connection(self, adapter):
+        self._configured(adapter)
+        for _ in range(3):
+            feed(adapter, ":NickServ!s@services NOTICE idlerpg :is not registered.")
+        assert sent(adapter).count("REGISTER") == 1
+
+    def test_ignores_notices_from_impostors(self, adapter):
+        self._configured(adapter)
+        feed(adapter, ":evil!u@h NOTICE idlerpg :your nick is not registered.")
+        assert "REGISTER" not in sent(adapter)
+
+    def test_does_nothing_without_an_email(self, adapter):
+        self._configured(adapter, email="")
+        feed(adapter, ":NickServ!s@services NOTICE idlerpg :is not registered.")
+        assert "REGISTER" not in sent(adapter)
+
+    def test_identifies_on_connect(self, adapter):
+        self._configured(adapter)
+        feed(adapter, ":server 001 idlerpg :Welcome")
+        assert "PRIVMSG NickServ :IDENTIFY s3cret" in sent(adapter)
+
+    def test_nickserv_password_never_reaches_the_channel(self, adapter):
+        self._configured(adapter)
+        feed(adapter, ":server 001 idlerpg :Welcome")
+        feed(adapter, ":NickServ!s@services NOTICE idlerpg :is not registered.")
+        channel_lines = [
+            l for l in adapter.writer.lines
+            if l.startswith(f"PRIVMSG {adapter.cfg.channel}")
+        ]
+        assert not any("s3cret" in l for l in channel_lines)
