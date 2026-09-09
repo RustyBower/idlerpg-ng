@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import random
+
 import pytest
 from sqlalchemy import create_engine as sa_engine
 from sqlalchemy.orm import Session
@@ -16,7 +18,9 @@ def engine():
     db = sa_engine("sqlite://")
     Base.metadata.create_all(db)
     with Session(db) as session:
-        yield Engine(session, Curve())
+        # Seeded: world events fire on random rolls, so an unseeded engine makes
+        # any test that ticks with players online intermittently fail.
+        yield Engine(session, Curve(), rng=random.Random(4242))
 
 
 def register(engine, name="rusty", platform=Platform.IRC, external=None):
