@@ -155,6 +155,20 @@ class DiscordAdapter(discord.Client):
         except discord.HTTPException:
             log.exception("failed removing the opt-in role")
 
+    async def set_topic(self, text: str) -> None:
+        """Set the channel topic, if we are allowed to."""
+        if not self.channel_id:
+            return
+        channel = self.get_channel(self.channel_id)
+        if channel is None:
+            return
+        try:
+            await channel.edit(topic=text[:1024])
+        except discord.Forbidden:
+            log.warning("cannot set the Discord topic - needs Manage Channels")
+        except discord.HTTPException:
+            log.debug("could not set the Discord topic")
+
     async def announce(self, text: str) -> None:
         """Post to the game channel, if one is configured and reachable."""
         if not self.channel_id:

@@ -370,6 +370,13 @@ class Engine:
         if commit:
             self.session.commit()
 
+    def top_players(self, count: int = 3) -> list[Player]:
+        """Highest level first, then whoever is closest to the next one."""
+        return list(self.session.scalars(
+            select(Player).order_by(Player.level.desc(), Player.next_ttl.asc())
+            .limit(count)
+        ).all())
+
     def online_players(self) -> list[Player]:
         players = self.session.scalars(
             select(Player).options(selectinload(Player.identities))

@@ -188,3 +188,18 @@ class TestLinkCodes:
         engine.redeem_link_code(code, Platform.DISCORD, "999")
         engine.tick(100)
         assert p.next_ttl == 500
+
+
+class TestTopPlayers:
+    def test_ranks_by_level_then_closest_to_the_next(self, engine):
+        a = register(engine, "a", external="a")
+        b = register(engine, "b", external="b")
+        c = register(engine, "c", external="c")
+        a.level, a.next_ttl = 5, 900
+        b.level, b.next_ttl = 5, 100      # same level, closer to levelling
+        c.level, c.next_ttl = 9, 5000
+        engine.session.commit()
+        assert [p.name for p in engine.top_players(3)] == ["c", "b", "a"]
+
+    def test_empty_realm_has_no_top_players(self, engine):
+        assert engine.top_players() == []

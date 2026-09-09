@@ -58,10 +58,34 @@ def main() -> int:
                         except Exception:
                             log.debug("announce failed", exc_info=True)
 
+        def build_topic() -> str | None:
+            """The site link plus the top three, as the original did."""
+            top = engine.top_players(3)
+            if not top:
+                return None
+            parts = [
+                f"#{i}: {p.name}, lv. {p.level} {p.character_class or 'wanderer'}"
+                for i, p in enumerate(top, 1)
+            ]
+            return f"{config.site_url} " + "; ".join(parts)
+
+        async def topic_loop() -> None:
+            while True:
+                await asyncio.sleep(config.topic_seconds)
+                topic = build_topic()
+                if topic is None:
+                    continue  # nothing to boast about yet
+                for a in adapters:
+                    try:
+                        await a.set_topic(topic)
+                    except Exception:
+                        log.debug("topic update failed", exc_info=True)
+
         async def run_all() -> None:
             tasks = [
                 asyncio.create_task(adapter.run_forever()),
                 asyncio.create_task(tick_loop()),
+                asyncio.create_task(topic_loop()),
             ]
             if config.discord.enabled:
                 # Imported lazily so the bot still starts without discord.py

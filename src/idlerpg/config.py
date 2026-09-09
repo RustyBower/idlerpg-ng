@@ -77,6 +77,14 @@ class Config:
         default_factory=lambda: os.environ.get("DATABASE_URL", "sqlite:///idlerpg.db")
     )
     tick_seconds: int = field(default_factory=lambda: int(os.environ.get("TICK_SECONDS", "5")))
+    # Ten hours, as the original. Discord throttles channel edits to roughly
+    # two per ten minutes, so this cannot be a live scoreboard there anyway.
+    topic_seconds: int = field(
+        default_factory=lambda: int(os.environ.get("TOPIC_SECONDS", "36000"))
+    )
+    site_url: str = field(
+        default_factory=lambda: os.environ.get("SITE_URL", "https://idlerpg.129irc.com/")
+    )
     irc: IRCConfig = field(default_factory=IRCConfig)
     discord: DiscordConfig = field(default_factory=DiscordConfig)
     curve: Curve = field(

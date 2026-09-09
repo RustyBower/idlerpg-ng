@@ -267,6 +267,16 @@ class IRCAdapter:
             if self.writer:
                 await self.writer.drain()
 
+    async def set_topic(self, text: str) -> None:
+        """Set the channel topic. Needs ops, which ChanServ grants on join."""
+        if self.writer is None:
+            return
+        self.send(f"TOPIC {self.cfg.channel} :{text}")
+        try:
+            await self.writer.drain()
+        except Exception:
+            log.debug("could not flush topic")
+
     async def announce(self, text: str) -> None:
         """Say something in the game channel, if we are connected."""
         if self.writer is None:
