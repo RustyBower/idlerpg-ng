@@ -89,8 +89,21 @@ class DiscordAdapter(discord.Client):
             try:
                 await channel.fetch_message(int(stored))
                 return  # still there, nothing to do
-            except (discord.NotFound, discord.HTTPException, ValueError):
-                log.info("opt-in message is gone; posting a new one")
+            except discord.NotFound:
+                log.info("opt-in message was deleted; posting a new one")
+            except discord.Forbidden:
+                # We can post but not read history here. Reposting on that
+                # basis would add a fresh message on every restart, so trust
+                # the stored id instead: reactions are delivered raw and do
+                # not need the message to be readable.
+                log.warning(
+                    "cannot read history in the opt-in channel; keeping the "
+                    "existing message. Grant Read Message History to verify it."
+                )
+                return
+            except (discord.HTTPException, ValueError):
+                log.warning("could not verify the opt-in message; keeping it")
+                return
 
         try:
             message = await channel.send(OPTIN_TEXT.format(emoji=self.optin_emoji))

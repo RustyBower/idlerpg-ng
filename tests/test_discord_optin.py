@@ -135,3 +135,55 @@ class TestPersistence:
         assert adapter.engine.get_setting(OPTIN_MESSAGE_KEY) == str(MSG_ID)
         adapter.engine.set_setting(OPTIN_MESSAGE_KEY, "42")
         assert adapter.engine.get_setting(OPTIN_MESSAGE_KEY) == "42"
+
+
+class TestNoDuplicateMessages:
+    """Posting rights without read-history must not cause a repost per restart."""
+
+    @pytest.mark.asyncio
+    async def test_forbidden_fetch_keeps_the_existing_message(self, adapter, monkeypatch):
+        import discord
+
+        sent = []
+
+        class Chan:
+            async def fetch_message(self, _id):
+                raise discord.Forbidden(_Resp(), "no history")
+
+            async def send(self, text):
+                sent.append(text)
+                raise AssertionError("must not repost when merely unreadable")
+
+        class _Resp:
+            status = 403
+            reason = "Forbidden"
+
+        monkeypatch.setattr(adapter, "get_channel", lambda _id: Chan())
+        await adapter.ensure_optin_message()
+        assert sent == []
+        assert adapter.engine.get_setting(OPTIN_MESSAGE_KEY) == str(MSG_ID)
+
+    @pytest.mark.asyncio
+    async def test_deleted_message_is_replaced(self, adapter, monkeypatch):
+        import discord
+
+        class Msg:
+            id = 4242
+
+            async def add_reaction(self, _e):
+                return None
+
+        class _Resp:
+            status = 404
+            reason = "Not Found"
+
+        class Chan:
+            async def fetch_message(self, _id):
+                raise discord.NotFound(_Resp(), "gone")
+
+            async def send(self, text):
+                return Msg()
+
+        monkeypatch.setattr(adapter, "get_channel", lambda _id: Chan())
+        await adapter.ensure_optin_message()
+        assert adapter.engine.get_setting(OPTIN_MESSAGE_KEY) == "4242"
