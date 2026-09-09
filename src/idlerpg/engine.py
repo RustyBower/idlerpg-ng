@@ -16,7 +16,7 @@ import string
 from datetime import timedelta
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import hash_password, verify_password
@@ -66,6 +66,13 @@ class LevelUp:
 
 
 BATTLE_CHECK_SECONDS = 3600  # the original challenges someone once an hour
+
+# Penalties for going away, as opposed to for speaking. These exist to punish
+# leaving the game; a player who is still present on another linked platform
+# has not left it, they have changed client.
+DEPARTURE_PENALTIES = frozenset(
+    {Penalty.PART, Penalty.QUIT, Penalty.KICK, Penalty.LOGOUT}
+)
 
 
 class RegistrationError(Exception):
@@ -293,9 +300,27 @@ class Engine:
 
     # -------------------------------------------------------------- penalties
 
+    def still_present_elsewhere(self, player: Player,
+                                platform: Platform | None) -> bool:
+        """Is this player still on some platform other than ``platform``?"""
+        if platform is None:
+            return False
+        return any(
+            identity.platform is not platform
+            and identity.presence in (Presence.ACTIVE, Presence.AWAY)
+            for identity in player.identities
+        )
+
     def penalise(self, player: Player, kind: Penalty, *,
                  message_length: int | None = None,
                  platform: Platform | None = None) -> int:
+        # Leaving one platform while still on another is not leaving. Without
+        # this, linking two accounts doubles a player's exposure to departure
+        # penalties while earning them nothing extra, which makes playing from
+        # both strictly worse than playing from one - the opposite of the point.
+        if kind in DEPARTURE_PENALTIES and self.still_present_elsewhere(player, platform):
+            return 0
+
         seconds = penalty_seconds(
             kind, player.level, self.curve, message_length=message_length
         )
@@ -335,6 +360,26 @@ class Engine:
         self.session.commit()
         return code
 
+    def redeem_merge_code(self, code: str, keeper: Player) -> Outcome:
+        """Absorb the character a code was minted for into ``keeper``."""
+        entry = self.session.scalar(
+            select(LinkCode).where(LinkCode.code == code.strip().upper())
+        )
+        if entry is None:
+            raise RegistrationError("that code is not valid")
+        expires = entry.expires
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < utcnow():
+            self.session.delete(entry)
+            self.session.commit()
+            raise RegistrationError("that code has expired")
+        absorb = self.session.get(Player, entry.player_id)
+        if absorb is None:
+            raise RegistrationError("that character no longer exists")
+        self.session.delete(entry)
+        return self.merge(keeper, absorb)
+
     def redeem_link_code(self, code: str, platform: Platform,
                          external_id: str, display_name: str = "") -> Player:
         entry = self.session.scalar(
@@ -368,6 +413,50 @@ class Engine:
         else:
             row.value = value
         self.session.commit()
+
+    def merge(self, keep: Player, absorb: Player) -> Outcome:
+        """Fold ``absorb`` into ``keep``, taking the better of the two.
+
+        Progress is combined by maximum, never by sum. Summing would make
+        registering twice a way to advance faster, which is exactly the
+        farming the one-character-many-identities model exists to prevent.
+        """
+        if keep.id == absorb.id:
+            raise RegistrationError("that is the same character")
+
+        keep.level = max(keep.level, absorb.level)
+        # Lower is better: it is time remaining, not time earned.
+        keep.next_ttl = min(keep.next_ttl, absorb.next_ttl)
+        keep.character_class = keep.character_class or absorb.character_class
+
+        by_slot = {i.slot: i for i in keep.items}
+        for item in absorb.items:
+            mine = by_slot.get(item.slot)
+            if mine is None:
+                keep.items.append(Item(slot=item.slot, value=item.value, tag=item.tag))
+            elif item.value > mine.value:
+                mine.value, mine.tag = item.value, item.tag
+
+        # Reparent with a direct UPDATE rather than through the collections.
+        # identities cascades delete-orphan, so removing one from absorb marks
+        # it deleted immediately and it cannot be re-appended; expiring the
+        # stale collection afterwards leaves nothing for the cascade to take.
+        self.session.execute(
+            update(PlatformIdentity)
+            .where(PlatformIdentity.player_id == absorb.id)
+            .values(player_id=keep.id)
+        )
+        self.session.expire(absorb, ["identities"])
+        self.session.expire(keep, ["identities"])
+
+        name = absorb.name
+        self.session.delete(absorb)
+        self.session.commit()
+        return Outcome(
+            f"{name} has been folded into {keep.name}, who now plays from "
+            f"both sides of the bridge.",
+            kind="merge",
+        )
 
     # ----------------------------------------------------------------- events
 

@@ -183,3 +183,32 @@ class TestNickServSelfRegistration:
             if l.startswith(f"PRIVMSG {adapter.cfg.channel}")
         ]
         assert not any("s3cret" in l for l in channel_lines)
+
+
+class TestMergeCommand:
+    def _registered(self, adapter, nick="rusty", name="rusty"):
+        feed(adapter, f":{nick}!u@h PRIVMSG idlerpg :REGISTER {name} pw Sysadmin")
+        return adapter.engine.find_player(name)
+
+    def test_merge_absorbs_the_coded_character(self, adapter):
+        from idlerpg.models import Platform
+        keeper = self._registered(adapter, "rusty", "keeper")
+        other = adapter.engine.register(
+            "other", "pw", "Wizard", Platform.DISCORD, "999"
+        )
+        code = adapter.engine.issue_link_code(other)
+        adapter.writer.lines.clear()
+        feed(adapter, f":rusty!u@h PRIVMSG idlerpg :MERGE {code}")
+        assert "folded into keeper" in sent(adapter)
+        assert adapter.engine.find_player("other") is None
+        assert adapter.engine.player_for(Platform.DISCORD, "999").name == "keeper"
+
+    def test_merge_requires_being_logged_in(self, adapter):
+        feed(adapter, ":stranger!u@h PRIVMSG idlerpg :MERGE ABCD1234")
+        assert "Log in first" in sent(adapter)
+
+    def test_a_bad_code_is_reported_not_raised(self, adapter):
+        self._registered(adapter)
+        adapter.writer.lines.clear()
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :MERGE NOPE0000")
+        assert "Cannot merge" in sent(adapter)

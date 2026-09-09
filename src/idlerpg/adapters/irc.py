@@ -58,7 +58,8 @@ def parse(line: str) -> Message | None:
 HELP = (
     "Stay connected and quiet to level up. "
     "REGISTER <name> <password> <class> | LOGIN <name> <password> | "
-    "LOGOUT | WHOAMI | LINK (for Discord)"
+    "LOGOUT | WHOAMI | LINK (get a code) | MERGE <code> (absorb another "
+    "character of yours)"
 )
 
 
@@ -175,6 +176,24 @@ class IRCAdapter:
                 nick,
                 f"Send this to the bot on Discord within 15 minutes: !link {code}",
             )
+        elif verb == "MERGE":
+            player = self.character_for_nick(nick)
+            if player is None:
+                self.notice(nick, "Log in first, then MERGE <code>.")
+                return
+            if not args:
+                self.notice(
+                    nick,
+                    "MERGE <code> - get the code with LINK on the other platform, "
+                    "as the character you want to absorb.",
+                )
+                return
+            try:
+                outcome = self.engine.redeem_merge_code(args[0], player)
+            except RegistrationError as exc:
+                self.notice(nick, f"Cannot merge: {exc}")
+                return
+            self.notice(nick, outcome.message)
         elif verb == "WHOAMI":
             player = self.character_for_nick(nick)
             if player is None:

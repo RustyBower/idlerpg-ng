@@ -34,7 +34,8 @@ PRESENCE_MAP = {
 HELP = (
     "Stay connected and quiet to level up. Commands: "
     "`!register <name> <password> <class>`, `!login <name> <password>`, "
-    "`!link <code>` (get the code with LINK on IRC), `!whoami`"
+    "`!link <code>` (get the code with LINK on IRC), `!merge <code>`, "
+    "`!code` (mint one here), `!whoami`"
 )
 
 
@@ -290,6 +291,33 @@ class DiscordAdapter(discord.Client):
                 await reply(str(exc))
                 return
             await reply(f"Logged in as {player.name}, level {player.level}.")
+        elif verb == "merge":
+            player = self.engine.player_for(Platform.DISCORD, external)
+            if player is None:
+                await reply("You have no character here. Use `!link <code>` instead.")
+                return
+            if not args:
+                await reply(
+                    "`!merge <code>` - run `LINK` on IRC as the character you "
+                    "want to absorb, then merge it into this one."
+                )
+                return
+            try:
+                outcome = self.engine.redeem_merge_code(args[0], player)
+            except RegistrationError as exc:
+                await reply(f"Cannot merge: {exc}")
+                return
+            await reply(outcome.message)
+        elif verb == "code":
+            player = self.engine.player_for(Platform.DISCORD, external)
+            if player is None:
+                await reply("You have no character here.")
+                return
+            code = self.engine.issue_link_code(player)
+            await reply(
+                f"Send this on IRC within 15 minutes: `MERGE {code}` "
+                f"(or `LINK` there first if you have no character on IRC)."
+            )
         elif verb == "link":
             if not args:
                 await reply("Run `LINK` on IRC to get a code, then `!link <code>`.")

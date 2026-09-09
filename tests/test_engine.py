@@ -222,3 +222,108 @@ class TestRegistrationIsAnnouncedEverywhere:
         engine.register("d", "pw", "Memelord", Platform.DISCORD, "999")
         msg = next(o.message for o in engine._pending if o.kind == "register")
         assert "discord" in msg
+
+
+class TestLinkingIsNotAPunishment:
+    """Playing from both platforms must not cost more than playing from one.
+
+    Earning is credited once by design; if departure penalties fired per
+    platform as well, linking would be strictly worse than not linking.
+    """
+
+    def _dual(self, engine):
+        p = register(engine, "dual", external="dual")
+        engine.link(p, Platform.DISCORD, "999")
+        return p
+
+    def test_leaving_one_platform_while_on_the_other_is_free(self, engine):
+        from idlerpg.rules import Penalty
+        p = self._dual(engine)
+        before = p.next_ttl
+        assert engine.penalise(p, Penalty.PART, platform=Platform.IRC) == 0
+        assert p.next_ttl == before
+
+    def test_leaving_the_last_platform_still_costs(self, engine):
+        from idlerpg.models import Presence
+        from idlerpg.rules import Penalty
+        p = self._dual(engine)
+        engine.set_presence(Platform.DISCORD, "999", Presence.OFFLINE)
+        before = p.next_ttl
+        assert engine.penalise(p, Penalty.QUIT, platform=Platform.IRC) > 0
+        assert p.next_ttl > before
+
+    def test_single_platform_players_are_unaffected(self, engine):
+        from idlerpg.rules import Penalty
+        p = register(engine)
+        assert engine.penalise(p, Penalty.PART, platform=Platform.IRC) > 0
+
+    def test_talking_still_costs_on_both(self, engine):
+        """You said the thing. Presence elsewhere is no excuse."""
+        from idlerpg.rules import Penalty
+        p = self._dual(engine)
+        a = engine.penalise(p, Penalty.MESSAGE, message_length=40, platform=Platform.IRC)
+        b = engine.penalise(p, Penalty.MESSAGE, message_length=40,
+                            platform=Platform.DISCORD)
+        assert a > 0 and b > 0
+
+    def test_a_nick_change_still_costs(self, engine):
+        from idlerpg.rules import Penalty
+        p = self._dual(engine)
+        assert engine.penalise(p, Penalty.NICK, platform=Platform.IRC) > 0
+
+    def test_dual_and_solo_players_earn_identically(self, engine):
+        solo = register(engine, "solo", external="solo")
+        dual = self._dual(engine)
+        engine.tick(100)
+        assert solo.next_ttl == dual.next_ttl
+
+
+class TestMerge:
+    """Registering separately on each platform is a common mistake; merging is
+    the way out, and it must not become a way to get ahead."""
+
+    def _two(self, engine):
+        a = register(engine, "irc_side", external="irc_side")
+        b = engine.register("discord_side", "pw", "Wizard", Platform.DISCORD, "999")
+        return a, b
+
+    def test_identities_move_and_the_absorbed_character_goes(self, engine):
+        a, b = self._two(engine)
+        engine.merge(a, b)
+        assert engine.find_player("discord_side") is None
+        assert engine.player_for(Platform.DISCORD, "999").name == "irc_side"
+        assert len(engine.find_player("irc_side").identities) == 2
+
+    def test_progress_is_maximum_not_sum(self, engine):
+        a, b = self._two(engine)
+        a.level, a.next_ttl = 5, 900
+        b.level, b.next_ttl = 9, 400
+        engine.session.commit()
+        engine.merge(a, b)
+        assert a.level == 9          # the better level, not 14
+        assert a.next_ttl == 400     # the nearer timer, not 1300
+
+    def test_the_better_item_per_slot_survives(self, engine):
+        a, b = self._two(engine)
+        a.items[0].value, a.items[1].value = 50, 5
+        b_items = {i.slot: i for i in b.items}
+        b_items[a.items[0].slot].value = 10
+        b_items[a.items[1].slot].value = 80
+        engine.session.commit()
+        slot_a, slot_b = a.items[0].slot, a.items[1].slot
+        engine.merge(a, b)
+        merged = {i.slot: i.value for i in a.items}
+        assert merged[slot_a] == 50   # kept ours
+        assert merged[slot_b] == 80   # took theirs
+
+    def test_merging_a_character_into_itself_is_refused(self, engine):
+        a, _ = self._two(engine)
+        with pytest.raises(RegistrationError):
+            engine.merge(a, a)
+
+    def test_a_merged_character_is_credited_once(self, engine):
+        a, b = self._two(engine)
+        engine.merge(a, b)
+        solo = register(engine, "solo", external="solo")
+        engine.tick(100)
+        assert a.next_ttl == solo.next_ttl
