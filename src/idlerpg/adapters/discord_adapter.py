@@ -51,13 +51,13 @@ PASSWORD_VERBS = frozenset({"register", "login", "merge"})
 OPTIN_MESSAGE_KEY = "discord_optin_message_id"
 
 OPTIN_TEXT = (
-    "**IdleRPG**\n"
-    "React with {emoji} to get access to the game channel. "
-    "Remove your reaction to leave again.\n\n"
-    "Nothing happens to you for joining: you only start playing once you "
-    "register a character, and the game ignores everyone else entirely. "
-    "Once you have one, it idles for as long as you keep this role, and "
-    "removing your reaction counts as leaving the game."
+    "**IdleRPG** - a game you play by doing nothing.\n"
+    "DM me `!register <name> <password> <class>` to make a character; that "
+    "also gives you the game channel. Already playing on IRC? DM me "
+    "`!login <name> <password>` instead and it becomes one character on both.\n\n"
+    "Your character idles for as long as you keep the game role. React with "
+    "{emoji} to see the channel without playing; removing your reaction takes "
+    "the role away again, and with a character that counts as leaving the game."
 )
 
 
@@ -83,11 +83,16 @@ class DiscordAdapter(discord.Client):
 
     # --------------------------------------------------------------- opt-in
 
+    @property
+    def optin_text(self) -> str:
+        return OPTIN_TEXT.format(emoji=self.optin_emoji)
+
     async def ensure_optin_message(self) -> None:
-        """Post the opt-in message once and remember which one it is.
+        """Post the opt-in message once, pin it, and remember which one it is.
 
         The id is stored so a restart reuses the existing post rather than
-        littering the channel with a new one every time the bot starts.
+        littering the channel with a new one every time the bot starts. A
+        reused post is brought up to date, so rewording it needs no repost.
         """
         if not self.optin_enabled:
             return
@@ -99,8 +104,7 @@ class DiscordAdapter(discord.Client):
         stored = self.engine.get_setting(OPTIN_MESSAGE_KEY)
         if stored:
             try:
-                await channel.fetch_message(int(stored))
-                return  # still there, nothing to do
+                existing = await channel.fetch_message(int(stored))
             except discord.NotFound:
                 log.info("opt-in message was deleted; posting a new one")
             except discord.Forbidden:
@@ -116,15 +120,37 @@ class DiscordAdapter(discord.Client):
             except (discord.HTTPException, ValueError):
                 log.warning("could not verify the opt-in message; keeping it")
                 return
+            else:
+                await self._tidy_optin(existing)
+                return
 
         try:
-            message = await channel.send(OPTIN_TEXT.format(emoji=self.optin_emoji))
+            message = await channel.send(self.optin_text)
             await message.add_reaction(self.optin_emoji)
         except discord.HTTPException:
             log.exception("could not post the opt-in message")
             return
         self.engine.set_setting(OPTIN_MESSAGE_KEY, str(message.id))
         log.info("posted opt-in message %s", message.id)
+        await self._pin(message)
+
+    async def _tidy_optin(self, message) -> None:
+        """Keep a reused opt-in message current: today's wording, and pinned."""
+        if message.content != self.optin_text:
+            try:
+                await message.edit(content=self.optin_text)
+            except discord.HTTPException:
+                log.warning("could not update the opt-in message text")
+        if not message.pinned:
+            await self._pin(message)
+
+    async def _pin(self, message) -> None:
+        try:
+            await message.pin(reason="IdleRPG: how to join")
+        except discord.Forbidden:
+            log.warning("cannot pin the opt-in message - needs Pin Messages")
+        except discord.HTTPException:
+            log.warning("could not pin the opt-in message")
 
     def _is_optin_reaction(self, payload) -> bool:
         if not self.optin_enabled or payload.guild_id is None:
@@ -195,20 +221,44 @@ class DiscordAdapter(discord.Client):
             return Presence.ACTIVE if self._has_role(member) else Presence.OFFLINE
         return PRESENCE_MAP.get(member.status, Presence.OFFLINE)
 
-    def _seat(self, user) -> str:
-        """Record a newly attached account's real presence.
+    async def _seat(self, user) -> str:
+        """Give a newly attached account the game role and record its presence.
 
-        Returns a note for the reply when that is not idling, so a player
-        without the role learns why their timer is not moving.
+        Registering is joining. With an opt-in role the role is what makes a
+        player present, and the opt-in message may sit in a channel they cannot
+        see, so it is granted here rather than left to a reaction. Returns a
+        note for the reply when they are still not idling, saying why.
         """
-        presence = self.presence_of(self._home_member(user.id))
+        member = self._home_member(user.id)
+        presence = self.presence_of(member)
+        note = ""
+        if presence is Presence.OFFLINE:
+            if not self.optin_enabled:
+                note = " You are not idling yet - you show as offline."
+            elif member is None:
+                note = " You are not idling yet - join the server first."
+            elif await self._grant_role(member):
+                presence = Presence.ACTIVE
+            else:
+                note = (" You are not idling yet - I could not give you the "
+                        "game role, so ask an admin.")
         self.engine.set_presence(Platform.DISCORD, str(user.id), presence)
-        if presence is not Presence.OFFLINE:
-            return ""
-        if self.optin_enabled:
-            return (" You are not idling yet - react to the opt-in message to "
-                    "get the game role.")
-        return " You are not idling yet - you show as offline."
+        return note
+
+    async def _grant_role(self, member) -> bool:
+        role = member.guild.get_role(self.optin_role_id)
+        if role is None:
+            return False
+        try:
+            await member.add_roles(role, reason="IdleRPG registration")
+        except discord.Forbidden:
+            log.warning("cannot grant %s - check Manage Roles and role order", role)
+            return False
+        except discord.HTTPException:
+            log.exception("failed granting the game role")
+            return False
+        log.info("granted the game role to %s", member)
+        return True
 
     async def set_topic(self, text: str) -> None:
         """Set the channel topic, if we are allowed to."""
@@ -368,7 +418,7 @@ class DiscordAdapter(discord.Client):
             except RegistrationError as exc:
                 await reply(f"Cannot register: {exc}")
                 return
-            note = self._seat(author)
+            note = await self._seat(author)
             await reply(f"Welcome, {player.name}. Now say nothing.{note}")
         elif verb == "login":
             if len(args) < 2:
@@ -387,7 +437,7 @@ class DiscordAdapter(discord.Client):
                 )
                 return
             self.engine.link(player, Platform.DISCORD, external, str(author))
-            note = self._seat(author)
+            note = await self._seat(author)
             await reply(f"Logged in as {player.name}, level {player.level}.{note}")
         elif verb == "merge":
             player = self.engine.player_for(Platform.DISCORD, external)

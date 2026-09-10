@@ -663,9 +663,8 @@ new connections, so wait about two minutes after connecting before you register.
 <code>!merge</code> to the bot in a direct message, not in the channel</strong> - they
 contain your password. If you put one in a channel the bot deletes it and replies
 privately instead. Everything else works in {E(CHANNEL)} or a DM.</p>
-<p class="muted">On Discord you idle for as long as you hold the game role: react to
-the opt-in message to get it, and remove your reaction to leave. Whether you show as
-online does not matter.</p>
+<p class="muted">On Discord you idle for as long as you hold the game role, which
+registering or logging in gives you. Whether you show as online does not matter.</p>
 
 <h2>One character on both</h2>
 <p class="muted">You do not need two characters. Log in on the other platform with the

@@ -38,16 +38,28 @@ class Guild:
         return next((m for m in self.members if m.id == uid), None)
 
 
+class Forbidden403:
+    status = 403
+    reason = "Forbidden"
+
+
 class Member:
     def __init__(self, guild, uid=USER_ID, role=False,
-                 status=discord.Status.online):
+                 status=discord.Status.online, forbid=False):
         self.id = uid
         self.bot = False
         self.guild = guild
         self.roles = [Role(ROLE_ID)] if role else []
         self.status = status
+        self.forbid = forbid
+        self.added = []
         self.dms = []
         guild.members.append(self)
+
+    async def add_roles(self, role, reason=None):
+        if self.forbid:
+            raise discord.Forbidden(Forbidden403(), "role above the bot's")
+        self.added.append(role.id)
 
     async def send(self, text):
         self.dms.append(text)
@@ -114,19 +126,38 @@ def presence(adapter, uid=USER_ID):
 
 
 class TestRegistering:
+    """Registering is joining: it hands out the game role, since the opt-in
+    message may be somewhere a newcomer cannot see."""
+
     @pytest.mark.asyncio
-    async def test_with_the_role_you_idle(self, adapter, guild):
+    async def test_registering_gives_you_the_role(self, adapter, guild):
+        member = Member(guild, role=False)
+        m = await command(adapter, member, "!register rusty pw Sysadmin")
+        assert member.added == [ROLE_ID]
+        assert presence(adapter) is Presence.ACTIVE
+        assert "not idling" not in m.replies[0]
+
+    @pytest.mark.asyncio
+    async def test_having_the_role_already_is_fine(self, adapter, guild):
         member = Member(guild, role=True)
         m = await command(adapter, member, "!register rusty pw Sysadmin")
         assert "Welcome" in m.replies[0]
+        assert member.added == []
         assert presence(adapter) is Presence.ACTIVE
 
     @pytest.mark.asyncio
-    async def test_without_the_role_you_do_not_and_are_told_why(self, adapter, guild):
-        member = Member(guild, role=False)
+    async def test_if_the_role_cannot_be_given_you_are_told(self, adapter, guild):
+        member = Member(guild, role=False, forbid=True)
         m = await command(adapter, member, "!register rusty pw Sysadmin")
         assert presence(adapter) is Presence.OFFLINE
-        assert "opt-in" in m.replies[0]
+        assert "ask an admin" in m.replies[0]
+
+    @pytest.mark.asyncio
+    async def test_outside_the_server_you_are_told_to_join(self, adapter, guild):
+        stranger = Member(Guild(), role=False)  # shares no guild with the bot
+        m = await command(adapter, stranger, "!register rusty pw Sysadmin")
+        assert presence(adapter) is Presence.OFFLINE
+        assert "join the server" in m.replies[0]
 
     @pytest.mark.asyncio
     async def test_offline_status_does_not_matter(self, adapter, guild):
@@ -136,8 +167,8 @@ class TestRegistering:
 
 
 class TestTheRoleIsPresence:
-    async def _registered(self, adapter, guild, role=True):
-        member = Member(guild, role=role)
+    async def _registered(self, adapter, guild):
+        member = Member(guild, role=True)
         await command(adapter, member, "!register rusty pw Sysadmin")
         return member, adapter.engine.find_player("rusty")
 
@@ -158,8 +189,11 @@ class TestTheRoleIsPresence:
 
     @pytest.mark.asyncio
     async def test_gaining_the_role_is_joining(self, adapter, guild):
-        member, player = await self._registered(adapter, guild, role=False)
-        await adapter.on_member_update(member, Member(Guild(), role=True))
+        member, player = await self._registered(adapter, guild)
+        without = Member(Guild(), role=False)
+        await adapter.on_member_update(member, without)
+        assert not player.is_idling
+        await adapter.on_member_update(without, Member(Guild(), role=True))
         assert presence(adapter) is Presence.ACTIVE
         assert player.is_idling
 
@@ -206,9 +240,11 @@ class TestLoginAndMerge:
     @pytest.mark.asyncio
     async def test_login_links_an_irc_character(self, adapter, guild):
         adapter.engine.register("rusty", "pw", "Sysadmin", Platform.IRC, "rusty")
-        m = await command(adapter, Member(guild, role=True), "!login rusty pw")
+        member = Member(guild, role=False)
+        m = await command(adapter, member, "!login rusty pw")
         assert "Logged in as rusty" in m.replies[0]
         assert adapter.engine.player_for(Platform.DISCORD, str(USER_ID)).name == "rusty"
+        assert member.added == [ROLE_ID]  # logging in joins, like registering
         assert presence(adapter) is Presence.ACTIVE
 
     @pytest.mark.asyncio

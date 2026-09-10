@@ -167,11 +167,7 @@ class TestNoDuplicateMessages:
     async def test_deleted_message_is_replaced(self, adapter, monkeypatch):
         import discord
 
-        class Msg:
-            id = 4242
-
-            async def add_reaction(self, _e):
-                return None
+        posted = Msg(id=4242)
 
         class _Resp:
             status = 404
@@ -182,8 +178,76 @@ class TestNoDuplicateMessages:
                 raise discord.NotFound(_Resp(), "gone")
 
             async def send(self, text):
-                return Msg()
+                return posted
 
         monkeypatch.setattr(adapter, "get_channel", lambda _id: Chan())
         await adapter.ensure_optin_message()
         assert adapter.engine.get_setting(OPTIN_MESSAGE_KEY) == "4242"
+        assert posted.pinned
+
+
+class Msg:
+    """A stand-in for the bot's own opt-in post."""
+
+    def __init__(self, id=MSG_ID, content="", pinned=False, can_pin=True):
+        self.id = id
+        self.content = content
+        self.pinned = pinned
+        self.can_pin = can_pin
+        self.edits = []
+
+    async def add_reaction(self, _e):
+        return None
+
+    async def edit(self, content):
+        self.edits.append(content)
+        self.content = content
+
+    async def pin(self, reason=None):
+        if not self.can_pin:
+            import discord
+
+            class _Resp:
+                status = 403
+                reason = "Forbidden"
+
+            raise discord.Forbidden(_Resp(), "no pin permission")
+        self.pinned = True
+
+
+class TestTheNoteStaysCurrent:
+    """The note is how newcomers learn to register, so it is pinned, and a
+    reused one is reworded to match rather than left saying something stale."""
+
+    def _serve(self, adapter, monkeypatch, message):
+        class Chan:
+            async def fetch_message(self, _id):
+                return message
+
+            async def send(self, text):
+                raise AssertionError("must not repost an existing note")
+
+        monkeypatch.setattr(adapter, "get_channel", lambda _id: Chan())
+
+    @pytest.mark.asyncio
+    async def test_a_stale_note_is_reworded_and_pinned(self, adapter, monkeypatch):
+        note = Msg(content="old wording")
+        self._serve(adapter, monkeypatch, note)
+        await adapter.ensure_optin_message()
+        assert note.content == adapter.optin_text
+        assert note.pinned
+
+    @pytest.mark.asyncio
+    async def test_a_current_note_is_left_alone(self, adapter, monkeypatch):
+        note = Msg(content=adapter.optin_text, pinned=True)
+        self._serve(adapter, monkeypatch, note)
+        await adapter.ensure_optin_message()
+        assert note.edits == []
+
+    @pytest.mark.asyncio
+    async def test_no_pin_permission_is_not_fatal(self, adapter, monkeypatch):
+        note = Msg(content="old wording", can_pin=False)
+        self._serve(adapter, monkeypatch, note)
+        await adapter.ensure_optin_message()
+        assert note.content == adapter.optin_text
+        assert not note.pinned

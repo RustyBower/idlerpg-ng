@@ -24,8 +24,9 @@ Running at [idlerpg.129irc.com](https://idlerpg.129irc.com/) on
 The network blocks private messages from brand new connections, so wait about
 two minutes after connecting before registering.
 
-**Discord** — react to the opt-in message for the game role, then send the bot
-a **direct message**:
+**Discord** — send the bot a **direct message**. Registering or logging in
+gives you the game role, which is what lets you see the game channel and what
+keeps your character idling:
 
     !register <name> <password> <class>
     !login <name> <password>
@@ -101,7 +102,8 @@ length does not change the game.
 | `IRC_NICKSERV_EMAIL` | | registers the nick if unregistered |
 | `DISCORD_TOKEN` | | omit to run IRC only |
 | `DISCORD_CHANNEL_ID` | | the game channel |
-| `DISCORD_OPTIN_CHANNEL_ID` / `DISCORD_OPTIN_ROLE_ID` | | click-to-opt-in |
+| `DISCORD_OPTIN_ROLE_ID` | | the game role; registering grants it |
+| `DISCORD_OPTIN_CHANNEL_ID` | | where the bot pins how to join - pick one everyone can see |
 | `TICK_SECONDS` | `5` | |
 | `TOPIC_SECONDS` | `36000` | Discord throttles channel edits hard |
 | `RP_BASE` / `RP_STEP` | `600` / `1.12` | |
@@ -113,8 +115,8 @@ machine-generated.
 On Discord it needs the **server members** and **message content** intents -
 members is how it sees who holds the game role - and the **presence** intent
 when no opt-in role is configured, since status is then what decides who is
-idling. Manage Roles is needed for the opt-in role, Manage Channels for the
-topic.
+idling. Manage Roles is needed for the game role (and the bot's own role must
+sit above it), Pin Messages to pin its note, Manage Channels for the topic.
 
 ## Development
 
