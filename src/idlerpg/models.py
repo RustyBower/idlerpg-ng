@@ -159,22 +159,6 @@ class PenaltyRecord(Base):
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-class LinkCode(Base):
-    """A short-lived code for attaching a second platform to a character.
-
-    Issued on a platform where the player is already authenticated, then
-    redeemed on the new one. This is what keeps linking safe: you must already
-    control the character to mint a code for it.
-    """
-
-    __tablename__ = "link_code"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(16), unique=True)
-    player_id: Mapped[int] = mapped_column(ForeignKey("player.id", ondelete="CASCADE"))
-    expires: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-
-
 class Quest(Base):
     """The realm runs one quest at a time; this is it.
 

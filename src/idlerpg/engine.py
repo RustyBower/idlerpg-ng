@@ -11,20 +11,15 @@ from __future__ import annotations
 import logging
 import os
 import random
-import secrets
-import string
-from datetime import timedelta
 from dataclasses import dataclass
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import hash_password, verify_password
-from datetime import timezone
 
 from .models import (
     Alignment,
-    LinkCode,
     Setting,
     EventLog,
     Item,
@@ -192,6 +187,39 @@ class Engine:
             self.session.commit()
         return identity
 
+    def set_player_presence(self, player: Player, platform: Platform,
+                            presence: Presence) -> None:
+        """Move every one of the player's identities on ``platform`` together.
+
+        A merge can leave a character holding two identities on one platform.
+        On IRC both describe the same connection, so they must go on and
+        offline as one, or the stale one keeps earning after the player leaves.
+        """
+        changed = False
+        for identity in player.identities:
+            if identity.platform is platform and identity.presence is not presence:
+                identity.presence = presence
+                identity.presence_since = utcnow()
+                changed = True
+        if changed:
+            self.session.commit()
+
+    def reset_presence(self, platform: Platform) -> None:
+        """Mark everyone offline on ``platform``.
+
+        For an adapter that has just lost or regained its connection: whatever
+        presence was recorded before describes a connection that is gone.
+        """
+        self.session.execute(
+            update(PlatformIdentity)
+            .where(
+                PlatformIdentity.platform == platform,
+                PlatformIdentity.presence != Presence.OFFLINE,
+            )
+            .values(presence=Presence.OFFLINE, presence_since=utcnow())
+        )
+        self.session.commit()
+
     # ------------------------------------------------------------------ clock
 
     def tick(self, elapsed_seconds: float) -> list[Outcome]:
@@ -339,66 +367,19 @@ class Engine:
         self.session.commit()
         return seconds
 
-    # ------------------------------------------------------------ linking
+    # ---------------------------------------------------------------- merging
 
-    LINK_CODE_TTL = timedelta(minutes=15)
+    def merge_by_password(self, keeper: Player, name: str,
+                          password: str) -> Outcome:
+        """Fold the named character into ``keeper``, given its password.
 
-    def issue_link_code(self, player: Player) -> str:
-        """Mint a code the player can redeem on another platform."""
-        alphabet = string.ascii_uppercase + string.digits
-        code = "".join(secrets.choice(alphabet) for _ in range(8))
-        self.session.query(LinkCode).filter(
-            LinkCode.player_id == player.id
-        ).delete()
-        self.session.add(
-            LinkCode(
-                code=code,
-                player_id=player.id,
-                expires=utcnow() + self.LINK_CODE_TTL,
-            )
-        )
-        self.session.commit()
-        return code
-
-    def redeem_merge_code(self, code: str, keeper: Player) -> Outcome:
-        """Absorb the character a code was minted for into ``keeper``."""
-        entry = self.session.scalar(
-            select(LinkCode).where(LinkCode.code == code.strip().upper())
-        )
-        if entry is None:
-            raise RegistrationError("that code is not valid")
-        expires = entry.expires
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-        if expires < utcnow():
-            self.session.delete(entry)
-            self.session.commit()
-            raise RegistrationError("that code has expired")
-        absorb = self.session.get(Player, entry.player_id)
+        The password is the proof of ownership, exactly as for logging in, so
+        nobody can fold someone else's progress into their own.
+        """
+        absorb = self.authenticate(name, password)
         if absorb is None:
-            raise RegistrationError("that character no longer exists")
-        self.session.delete(entry)
+            raise RegistrationError("wrong name or password")
         return self.merge(keeper, absorb)
-
-    def redeem_link_code(self, code: str, platform: Platform,
-                         external_id: str, display_name: str = "") -> Player:
-        entry = self.session.scalar(
-            select(LinkCode).where(LinkCode.code == code.strip().upper())
-        )
-        if entry is None:
-            raise RegistrationError("that code is not valid")
-        expires = entry.expires
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-        if expires < utcnow():
-            self.session.delete(entry)
-            self.session.commit()
-            raise RegistrationError("that code has expired")
-        player = self.session.get(Player, entry.player_id)
-        self.link(player, platform, external_id, display_name)
-        self.session.delete(entry)
-        self.session.commit()
-        return player
 
     # --------------------------------------------------------------- settings
 

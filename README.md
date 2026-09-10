@@ -19,24 +19,27 @@ Running at [idlerpg.129irc.com](https://idlerpg.129irc.com/) on
     /msg idlerpg REGISTER <name> <password> <class>
     /msg idlerpg LOGIN <name> <password>
     /msg idlerpg WHOAMI
-    /msg idlerpg LINK          # get a code to link Discord
+    /msg idlerpg MERGE <name> <password>   # fold another character into this one
 
 The network blocks private messages from brand new connections, so wait about
 two minutes after connecting before registering.
 
-**Discord** — send the bot a **direct message**:
+**Discord** — react to the opt-in message for the game role, then send the bot
+a **direct message**:
 
     !register <name> <password> <class>
     !login <name> <password>
     !whoami
-    !link <code>
+    !merge <name> <password>
 
-`!register` and `!login` carry a password, so they are refused in a channel;
-the bot deletes the message where it can and replies privately.
+`!register`, `!login` and `!merge` carry a password, so they are refused in a
+channel; the bot deletes the message where it can and replies privately.
 
-**Both at once** — run `LINK` on IRC, then `!link <code>` on Discord within
-fifteen minutes. You are then one character on both, still earning exactly one
-second per second: being in two places is neither a penalty nor a shortcut.
+**Both at once** — log in on the other platform with the same name and
+password. You are then one character on both, still earning exactly one second
+per second: being in two places is neither a penalty nor a shortcut. If you
+already registered on each, log in as the one to keep and `MERGE` the other
+into it; it keeps the better level, timer and item per slot, never the sum.
 
 ## The two decisions that shape this
 
@@ -46,8 +49,11 @@ keys a player to an IRC nick, which cannot represent someone playing from two
 places.
 
 **You earn time while present and silent on at least one linked platform.** IRC
-idling (connected and quiet) and Discord idling (present and not posting) are
-not the same thing, and conflating them makes the game unfair or farmable.
+idling (in the channel and quiet) and Discord idling (holding the game role and
+not posting) are not the same thing, and conflating them makes the game unfair
+or farmable. Losing the role counts as parting and leaving the server as
+quitting. Without an opt-in role configured, Discord status stands in for it:
+online, idle and dnd count as present.
 Crediting the character rather than each connection is what stops two platforms
 paying twice.
 
@@ -104,10 +110,11 @@ The bot needs a **descriptive realname** on networks running UnrealIRCd's
 `antirandom` module, which kills clients whose nick, ident and realname look
 machine-generated.
 
-On Discord it needs the **presence**, **server members** and **message content**
-intents. Presence is not optional: without it there is no way to tell whether
-anyone is idling. Manage Roles is needed for the opt-in role, Manage Channels
-for the topic.
+On Discord it needs the **server members** and **message content** intents -
+members is how it sees who holds the game role - and the **presence** intent
+when no opt-in role is configured, since status is then what decides who is
+idling. Manage Roles is needed for the opt-in role, Manage Channels for the
+topic.
 
 ## Development
 

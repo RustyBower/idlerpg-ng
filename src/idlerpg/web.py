@@ -644,7 +644,7 @@ def page_game():
   <tr><th>Register</th><td><code>/msg {E(BOT_NICK)} REGISTER &lt;name&gt; &lt;password&gt; &lt;class&gt;</code></td></tr>
   <tr><th>Log in later</th><td><code>/msg {E(BOT_NICK)} LOGIN &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Check yourself</th><td><code>/msg {E(BOT_NICK)} WHOAMI</code></td></tr>
-  <tr><th>Link Discord</th><td><code>/msg {E(BOT_NICK)} LINK</code></td></tr>
+  <tr><th>Merge a second character</th><td><code>/msg {E(BOT_NICK)} MERGE &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Log out</th><td><code>/msg {E(BOT_NICK)} LOGOUT</code></td></tr>
 </table>
 <p class="muted">Connect to <code>irc.129irc.com</code> on port <code>6697</code> with
@@ -656,20 +656,26 @@ new connections, so wait about two minutes after connecting before you register.
   <tr><th>Register</th><td><code>!register &lt;name&gt; &lt;password&gt; &lt;class&gt;</code></td></tr>
   <tr><th>Log in later</th><td><code>!login &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Check yourself</th><td><code>!whoami</code></td></tr>
-  <tr><th>Link to an IRC character</th><td><code>!link &lt;code&gt;</code></td></tr>
+  <tr><th>Merge a second character</th><td><code>!merge &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Commands</th><td><code>!help</code></td></tr>
 </table>
-<p class="muted"><strong>Send <code>!register</code> and <code>!login</code> to the bot
-in a direct message, not in the channel</strong> - they contain your password. If you
-put one in a channel the bot deletes it and replies privately instead. Everything else
-works in {E(CHANNEL)} or a DM.</p>
+<p class="muted"><strong>Send <code>!register</code>, <code>!login</code> and
+<code>!merge</code> to the bot in a direct message, not in the channel</strong> - they
+contain your password. If you put one in a channel the bot deletes it and replies
+privately instead. Everything else works in {E(CHANNEL)} or a DM.</p>
+<p class="muted">On Discord you idle for as long as you hold the game role: react to
+the opt-in message to get it, and remove your reaction to leave. Whether you show as
+online does not matter.</p>
 
 <h2>One character on both</h2>
-<p class="muted">You do not need two characters. Run <code>LINK</code> on IRC to get a
-code, then send <code>!link &lt;code&gt;</code> to the bot on Discord within fifteen
-minutes. After that you are one character on both, and you still earn exactly one
-second per second - being in two places is neither a penalty nor a way to gain
-time faster.</p>
+<p class="muted">You do not need two characters. Log in on the other platform with the
+same name and password - <code>LOGIN</code> on IRC, <code>!login</code> on Discord -
+and you are one character on both. You still earn exactly one second per second:
+being in two places is neither a penalty nor a way to gain time faster.</p>
+<p class="muted">Registered on each already? Log in as the one you want to keep and
+merge the other into it with <code>MERGE &lt;name&gt; &lt;password&gt;</code> on IRC
+or <code>!merge</code> on Discord. It keeps the better level, timer and item in each
+slot - never the sum.</p>
 
 <p class="muted">Your class is cosmetic - pick something you like.</p>
 

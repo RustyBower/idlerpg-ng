@@ -145,53 +145,55 @@ class TestLinking:
             engine.link(b, Platform.DISCORD, "shared")
 
 
-class TestLinkCodes:
-    """Linking requires already controlling the character, which is what keeps
-    someone from attaching themselves to another player's progress."""
+class TestMergeByPassword:
+    """The password is the proof of ownership, as it is for logging in, which
+    is what keeps someone from folding another player's progress into theirs."""
 
-    def test_code_links_a_second_platform(self, engine):
-        p = register(engine)
-        code = engine.issue_link_code(p)
-        linked = engine.redeem_link_code(code, Platform.DISCORD, "999", "rusty#1")
-        assert linked.name == p.name
-        assert engine.player_for(Platform.DISCORD, "999").name == "rusty"
+    def _two(self, engine):
+        keep = register(engine, "keep", external="keep")
+        engine.register("other", "pw", "Wizard", Platform.DISCORD, "999")
+        return keep
 
-    def test_codes_are_single_use(self, engine):
-        p = register(engine)
-        code = engine.issue_link_code(p)
-        engine.redeem_link_code(code, Platform.DISCORD, "999")
+    def test_the_right_password_merges(self, engine):
+        keep = self._two(engine)
+        engine.merge_by_password(keep, "other", "pw")
+        assert engine.find_player("other") is None
+        assert engine.player_for(Platform.DISCORD, "999").name == "keep"
+
+    def test_the_wrong_password_changes_nothing(self, engine):
+        keep = self._two(engine)
         with pytest.raises(RegistrationError):
-            engine.redeem_link_code(code, Platform.DISCORD, "888")
+            engine.merge_by_password(keep, "other", "wrong")
+        assert engine.find_player("other") is not None
 
-    def test_unknown_code_rejected(self, engine):
+    def test_an_unknown_name_is_refused(self, engine):
+        keep = self._two(engine)
         with pytest.raises(RegistrationError):
-            engine.redeem_link_code("NOPE1234", Platform.DISCORD, "999")
+            engine.merge_by_password(keep, "nobody", "pw")
 
-    def test_expired_code_rejected(self, engine):
-        from datetime import timedelta
-        from idlerpg.models import LinkCode, utcnow
-        p = register(engine)
-        code = engine.issue_link_code(p)
-        entry = engine.session.query(LinkCode).filter_by(code=code).one()
-        entry.expires = utcnow() - timedelta(minutes=1)
-        engine.session.commit()
-        with pytest.raises(RegistrationError):
-            engine.redeem_link_code(code, Platform.DISCORD, "999")
 
-    def test_issuing_a_new_code_invalidates_the_old_one(self, engine):
-        p = register(engine)
-        first = engine.issue_link_code(p)
-        engine.issue_link_code(p)
-        with pytest.raises(RegistrationError):
-            engine.redeem_link_code(first, Platform.DISCORD, "999")
+class TestPlayerPresence:
+    def test_every_identity_on_the_platform_moves_together(self, engine):
+        """A merge can leave two IRC identities; neither may be left earning."""
+        a = register(engine, "a", external="a")
+        b = register(engine, "b", external="b")
+        engine.merge(a, b)
+        engine.set_player_presence(a, Platform.IRC, Presence.OFFLINE)
+        assert [i.presence for i in a.identities] == [Presence.OFFLINE] * 2
+        assert not a.is_idling
 
-    def test_linked_character_is_credited_once(self, engine):
-        """The whole point: two platforms, one character, one credit."""
+    def test_other_platforms_are_left_alone(self, engine):
         p = register(engine)
-        code = engine.issue_link_code(p)
-        engine.redeem_link_code(code, Platform.DISCORD, "999")
-        engine.tick(100)
-        assert p.next_ttl == 500
+        engine.link(p, Platform.DISCORD, "999")
+        engine.set_player_presence(p, Platform.IRC, Presence.OFFLINE)
+        assert engine.find_identity(Platform.DISCORD, "999").presence is Presence.ACTIVE
+
+    def test_reset_takes_a_whole_platform_offline_and_nothing_else(self, engine):
+        on_irc = register(engine, "irc", external="irc")
+        on_discord = engine.register("disc", "pw", "Wizard", Platform.DISCORD, "999")
+        engine.reset_presence(Platform.IRC)
+        assert not on_irc.is_idling
+        assert on_discord.is_idling
 
 
 class TestTopPlayers:

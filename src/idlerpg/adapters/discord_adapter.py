@@ -4,10 +4,15 @@ Reports presence and relays commands, exactly as the IRC adapter does. All the
 rules live in the engine, so a character earns time the same way regardless of
 which side of the bridge they are sitting on.
 
-Discord presence is coarser than an IRC connection: a client can report
-"online" indefinitely. That is why the engine credits the character rather than
-the connection, and why online and idle both count as present rather than
-trying to infer real activity.
+Being present on Discord means having the game channel: a registered player
+idles for as long as they hold the opt-in role, the way an IRC player idles for
+as long as they sit in the channel. Losing the role is parting, and leaving the
+server is quitting. Online status plays no part - a client can report "online"
+indefinitely, and "offline" is also how an invisible user looks.
+
+Without an opt-in role configured there is no channel access to go on, so
+status stands in for it: online, idle and dnd count as present, offline does
+not.
 """
 
 from __future__ import annotations
@@ -22,8 +27,8 @@ from ..rules import Penalty
 
 log = logging.getLogger(__name__)
 
-# Discord's statuses mapped onto ours. "idle" and "dnd" still mean connected,
-# which is what the game rewards; only offline earns nothing.
+# Discord's statuses mapped onto ours, used only when there is no opt-in role.
+# "idle" and "dnd" still mean connected; only offline earns nothing.
 PRESENCE_MAP = {
     discord.Status.online: Presence.ACTIVE,
     discord.Status.idle: Presence.AWAY,
@@ -32,11 +37,15 @@ PRESENCE_MAP = {
 }
 
 HELP = (
-    "Stay connected and quiet to level up. Commands: "
-    "`!register <name> <password> <class>`, `!login <name> <password>`, "
-    "`!link <code>` (get the code with LINK on IRC), `!merge <code>`, "
-    "`!code` (mint one here), `!whoami`"
+    "Stay in the game channel and stay quiet to level up. Commands: "
+    "`!register <name> <password> <class>`, `!login <name> <password>` "
+    "(an IRC character works too, making it one character on both), "
+    "`!merge <name> <password>` (fold another character of yours into this "
+    "one), `!whoami`"
 )
+
+# These carry a password, so they are accepted only in a DM.
+PASSWORD_VERBS = frozenset({"register", "login", "merge"})
 
 
 OPTIN_MESSAGE_KEY = "discord_optin_message_id"
@@ -46,7 +55,9 @@ OPTIN_TEXT = (
     "React with {emoji} to get access to the game channel. "
     "Remove your reaction to leave again.\n\n"
     "Nothing happens to you for joining: you only start playing once you "
-    "register a character, and the game ignores everyone else entirely."
+    "register a character, and the game ignores everyone else entirely. "
+    "Once you have one, it idles for as long as you keep this role, and "
+    "removing your reaction counts as leaving the game."
 )
 
 
@@ -156,6 +167,49 @@ class DiscordAdapter(discord.Client):
         except discord.HTTPException:
             log.exception("failed removing the opt-in role")
 
+    # -------------------------------------------------------------- presence
+
+    def _in_home_guild(self, guild) -> bool:
+        """Does this guild's membership count? Only the one holding the role."""
+        if not self.optin_enabled:
+            return True
+        return guild is not None and guild.get_role(self.optin_role_id) is not None
+
+    def _home_member(self, user_id: int):
+        for guild in self.guilds:
+            if self._in_home_guild(guild):
+                member = guild.get_member(user_id)
+                if member is not None:
+                    return member
+        return None
+
+    def _has_role(self, member) -> bool:
+        return any(role.id == self.optin_role_id
+                   for role in getattr(member, "roles", ()))
+
+    def presence_of(self, member) -> Presence:
+        """Is this member in the game? The role decides, or failing that status."""
+        if member is None:
+            return Presence.OFFLINE
+        if self.optin_enabled:
+            return Presence.ACTIVE if self._has_role(member) else Presence.OFFLINE
+        return PRESENCE_MAP.get(member.status, Presence.OFFLINE)
+
+    def _seat(self, user) -> str:
+        """Record a newly attached account's real presence.
+
+        Returns a note for the reply when that is not idling, so a player
+        without the role learns why their timer is not moving.
+        """
+        presence = self.presence_of(self._home_member(user.id))
+        self.engine.set_presence(Platform.DISCORD, str(user.id), presence)
+        if presence is not Presence.OFFLINE:
+            return ""
+        if self.optin_enabled:
+            return (" You are not idling yet - react to the opt-in message to "
+                    "get the game role.")
+        return " You are not idling yet - you show as offline."
+
     async def set_topic(self, text: str) -> None:
         """Set the channel topic, if we are allowed to."""
         if not self.channel_id:
@@ -187,23 +241,61 @@ class DiscordAdapter(discord.Client):
     async def on_ready(self) -> None:
         log.info("connected to Discord as %s", self.user)
         await self.ensure_optin_message()
-        # Seed presence for everyone already visible, otherwise nobody accrues
-        # time until they next change status.
+        # What was recorded before describes a session that is gone, and
+        # anyone who lost the role or left while we were away must not keep
+        # earning. Then seed everyone who is here, or nobody accrues time until
+        # they next change.
+        self.engine.reset_presence(Platform.DISCORD)
         for guild in self.guilds:
+            if not self._in_home_guild(guild):
+                continue
             for member in guild.members:
-                self.engine.set_presence(
-                    Platform.DISCORD,
-                    str(member.id),
-                    PRESENCE_MAP.get(member.status, Presence.OFFLINE),
-                )
+                presence = self.presence_of(member)
+                if presence is not Presence.OFFLINE:
+                    self.engine.set_presence(
+                        Platform.DISCORD, str(member.id), presence
+                    )
 
     async def on_presence_update(self, before: discord.Member,
                                  after: discord.Member) -> None:
+        # With a game role, holding it is presence and status is irrelevant.
+        if self.optin_enabled:
+            return
         self.engine.set_presence(
-            Platform.DISCORD,
-            str(after.id),
-            PRESENCE_MAP.get(after.status, Presence.OFFLINE),
+            Platform.DISCORD, str(after.id), self.presence_of(after)
         )
+
+    async def on_member_update(self, before: discord.Member,
+                               after: discord.Member) -> None:
+        """Gaining or losing the game role is joining or parting the channel.
+
+        Handled here rather than on the reaction so that a role granted or
+        removed by hand counts the same way.
+        """
+        if not self.optin_enabled:
+            return
+        had, has = self._has_role(before), self._has_role(after)
+        if had == has:
+            return
+        external = str(after.id)
+        if not has:
+            player = self.engine.player_for(Platform.DISCORD, external)
+            if player is not None:
+                self.engine.penalise(player, Penalty.PART, platform=Platform.DISCORD)
+        self.engine.set_presence(
+            Platform.DISCORD, external,
+            Presence.ACTIVE if has else Presence.OFFLINE,
+        )
+
+    async def on_member_remove(self, member: discord.Member) -> None:
+        """Leaving the server is quitting."""
+        if not self._in_home_guild(member.guild):
+            return
+        identity = self.engine.find_identity(Platform.DISCORD, str(member.id))
+        if identity is None or identity.presence is Presence.OFFLINE:
+            return
+        self.engine.penalise(identity.player, Penalty.QUIT, platform=Platform.DISCORD)
+        self.engine.set_presence(Platform.DISCORD, str(member.id), Presence.OFFLINE)
 
     def _in_scope(self, message: discord.Message) -> bool:
         """DMs always, plus the one configured channel. Nothing else.
@@ -245,10 +337,10 @@ class DiscordAdapter(discord.Client):
         async def reply(text: str) -> None:
             await message.reply(text, mention_author=False)
 
-        # register and login take a password. On IRC these arrive as a private
-        # message; the Discord equivalent is a DM. Refuse them in a channel and
-        # delete the evidence, rather than echoing a password back to a room.
-        if verb in ("register", "login") and not is_dm:
+        # These take a password. On IRC they arrive as a private message; the
+        # Discord equivalent is a DM. Refuse them in a channel and delete the
+        # evidence, rather than echoing a password back to a room.
+        if verb in PASSWORD_VERBS and not is_dm:
             try:
                 await message.delete()
             except discord.HTTPException:
@@ -276,7 +368,8 @@ class DiscordAdapter(discord.Client):
             except RegistrationError as exc:
                 await reply(f"Cannot register: {exc}")
                 return
-            await reply(f"Welcome, {player.name}. Now say nothing.")
+            note = self._seat(author)
+            await reply(f"Welcome, {player.name}. Now say nothing.{note}")
         elif verb == "login":
             if len(args) < 2:
                 await reply("`!login <name> <password>`")
@@ -285,53 +378,36 @@ class DiscordAdapter(discord.Client):
             if player is None:
                 await reply("Wrong name or password.")
                 return
-            try:
-                self.engine.link(player, Platform.DISCORD, external, str(author))
-            except RegistrationError as exc:
-                await reply(str(exc))
+            current = self.engine.player_for(Platform.DISCORD, external)
+            if current is not None and current.id != player.id:
+                await reply(
+                    f"This Discord account already plays {current.name}. To make "
+                    f"them one character, keep {current.name} and send "
+                    f"`!merge {player.name} <password>`."
+                )
                 return
-            await reply(f"Logged in as {player.name}, level {player.level}.")
+            self.engine.link(player, Platform.DISCORD, external, str(author))
+            note = self._seat(author)
+            await reply(f"Logged in as {player.name}, level {player.level}.{note}")
         elif verb == "merge":
             player = self.engine.player_for(Platform.DISCORD, external)
             if player is None:
-                await reply("You have no character here. Use `!link <code>` instead.")
-                return
-            if not args:
                 await reply(
-                    "`!merge <code>` - run `LINK` on IRC as the character you "
-                    "want to absorb, then merge it into this one."
+                    "You have no character here yet. `!login` as the one to "
+                    "keep first."
+                )
+                return
+            if len(args) < 2:
+                await reply(
+                    "`!merge <name> <password>` folds that character into this one."
                 )
                 return
             try:
-                outcome = self.engine.redeem_merge_code(args[0], player)
+                outcome = self.engine.merge_by_password(player, args[0], args[1])
             except RegistrationError as exc:
                 await reply(f"Cannot merge: {exc}")
                 return
             await reply(outcome.message)
-        elif verb == "code":
-            player = self.engine.player_for(Platform.DISCORD, external)
-            if player is None:
-                await reply("You have no character here.")
-                return
-            code = self.engine.issue_link_code(player)
-            await reply(
-                f"Send this on IRC within 15 minutes: `MERGE {code}` "
-                f"(or `LINK` there first if you have no character on IRC)."
-            )
-        elif verb == "link":
-            if not args:
-                await reply("Run `LINK` on IRC to get a code, then `!link <code>`.")
-                return
-            try:
-                player = self.engine.redeem_link_code(
-                    args[0], Platform.DISCORD, external, str(author)
-                )
-            except RegistrationError as exc:
-                await reply(f"Cannot link: {exc}")
-                return
-            await reply(
-                f"Linked to {player.name}. You are one character on both now."
-            )
         elif verb == "whoami":
             player = self.engine.player_for(Platform.DISCORD, external)
             if player is None:

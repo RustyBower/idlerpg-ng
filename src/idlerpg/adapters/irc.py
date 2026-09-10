@@ -5,9 +5,10 @@ chatter and nick changes become penalties, and private messages to the bot are
 commands. It holds no game rules of its own.
 
 IRC has no stable per-user identifier without services, so a character's IRC
-identity is keyed on its own account name, with the nick currently bound to it
-kept in display_name. The adapter maps live nicks to characters for the
-duration of a connection.
+identity is keyed on the character's name when it first reaches IRC - at
+REGISTER, or at LOGIN for a character registered on Discord - with the nick
+currently bound to it kept in display_name. The adapter maps live nicks to
+those identities for the duration of a connection.
 """
 
 from __future__ import annotations
@@ -57,9 +58,9 @@ def parse(line: str) -> Message | None:
 
 HELP = (
     "Stay connected and quiet to level up. "
-    "REGISTER <name> <password> <class> | LOGIN <name> <password> | "
-    "LOGOUT | WHOAMI | LINK (get a code) | MERGE <code> (absorb another "
-    "character of yours)"
+    "REGISTER <name> <password> <class> | LOGIN <name> <password> (a Discord "
+    "character too) | LOGOUT | WHOAMI | MERGE <name> <password> (fold another "
+    "character of yours into this one)"
 )
 
 
@@ -70,7 +71,7 @@ class IRCAdapter:
         self.tick_seconds = config.tick_seconds
         self.reader: asyncio.StreamReader | None = None
         self.writer: asyncio.StreamWriter | None = None
-        # nick -> character name, for this connection only
+        # nick -> IRC identity external_id, for this connection only
         self.bound: dict[str, str] = {}
         # Only attempt self-registration once per connection.
         self.registration_attempted = False
@@ -106,15 +107,28 @@ class IRCAdapter:
     # --------------------------------------------------------------- helpers
 
     def character_for_nick(self, nick: str):
-        name = self.bound.get(nick.lower())
-        return self.engine.find_player(name) if name else None
+        # Bound to the identity rather than the character's name, so a nick
+        # follows its character through a merge made from Discord.
+        external = self.bound.get(nick.lower())
+        return self.engine.player_for(Platform.IRC, external) if external else None
 
     def bind(self, nick: str, player) -> None:
-        self.bound[nick.lower()] = player.name
-        identity = self.engine.find_identity(Platform.IRC, player.name)
-        if identity:
-            identity.display_name = nick
-        self.engine.set_presence(Platform.IRC, player.name, Presence.ACTIVE)
+        """Attach ``nick`` to ``player`` and mark them present on IRC.
+
+        Logging in is how a character reaches IRC, so one registered on Discord
+        gains an IRC identity here. Without it they would show as logged in
+        and earn nothing.
+        """
+        identity = next(
+            (i for i in player.identities if i.platform is Platform.IRC), None
+        )
+        if identity is None:
+            identity = self.engine.link(player, Platform.IRC, player.name, nick)
+        self.bound[nick.lower()] = identity.external_id
+        for irc_identity in player.identities:
+            if irc_identity.platform is Platform.IRC:
+                irc_identity.display_name = nick
+        self.engine.set_player_presence(player, Platform.IRC, Presence.ACTIVE)
 
     def unbind(self, nick: str, penalty: Penalty | None = None) -> None:
         player = self.character_for_nick(nick)
@@ -122,7 +136,7 @@ class IRCAdapter:
             return
         if penalty is not None:
             self.engine.penalise(player, penalty, platform=Platform.IRC)
-        self.engine.set_presence(Platform.IRC, player.name, Presence.OFFLINE)
+        self.engine.set_player_presence(player, Platform.IRC, Presence.OFFLINE)
         self.bound.pop(nick.lower(), None)
 
     # -------------------------------------------------------------- commands
@@ -157,7 +171,11 @@ class IRCAdapter:
             if player is None:
                 self.notice(nick, "Wrong name or password.")
                 return
-            self.bind(nick, player)
+            try:
+                self.bind(nick, player)
+            except RegistrationError as exc:
+                self.notice(nick, f"Cannot log in: {exc}")
+                return
             self.notice(nick, f"Logged in as {player.name}, level {player.level}.")
         elif verb == "LOGOUT":
             player = self.character_for_nick(nick)
@@ -166,30 +184,20 @@ class IRCAdapter:
                 return
             self.unbind(nick, Penalty.LOGOUT)
             self.notice(nick, "Logged out. Your timer took the usual penalty.")
-        elif verb == "LINK":
-            player = self.character_for_nick(nick)
-            if player is None:
-                self.notice(nick, "Log in first, then LINK.")
-                return
-            code = self.engine.issue_link_code(player)
-            self.notice(
-                nick,
-                f"Send this to the bot on Discord within 15 minutes: !link {code}",
-            )
         elif verb == "MERGE":
             player = self.character_for_nick(nick)
             if player is None:
-                self.notice(nick, "Log in first, then MERGE <code>.")
+                self.notice(nick, "Log in as the character to keep, then MERGE.")
                 return
-            if not args:
+            if len(args) < 2:
                 self.notice(
                     nick,
-                    "MERGE <code> - get the code with LINK on the other platform, "
-                    "as the character you want to absorb.",
+                    "MERGE <name> <password> - folds that character into the "
+                    "one you are logged in as.",
                 )
                 return
             try:
-                outcome = self.engine.redeem_merge_code(args[0], player)
+                outcome = self.engine.merge_by_password(player, args[0], args[1])
             except RegistrationError as exc:
                 self.notice(nick, f"Cannot merge: {exc}")
                 return
@@ -229,6 +237,10 @@ class IRCAdapter:
         if cmd == "PING":
             self.send(f"PONG :{msg.text}")
         elif cmd == "001":  # welcome
+            # Nobody is bound on a fresh connection, so any IRC presence still
+            # recorded - from before a restart - describes no one and must not
+            # keep earning.
+            self.engine.reset_presence(Platform.IRC)
             if self.cfg.nickserv_password:
                 self.send(
                     f"PRIVMSG NickServ :IDENTIFY {self.cfg.nickserv_password}"
@@ -314,10 +326,7 @@ class IRCAdapter:
                 log.warning("disconnected: %s", exc)
             # Everyone loses presence when the link drops; they are not online
             # to us any more, and should not accrue time until they return.
-            for nick in list(self.bound):
-                self.engine.set_presence(
-                    Platform.IRC, self.bound[nick], Presence.OFFLINE
-                )
+            self.engine.reset_presence(Platform.IRC)
             self.bound.clear()
             if self.writer:
                 self.writer.close()

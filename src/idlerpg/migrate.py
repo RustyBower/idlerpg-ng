@@ -17,13 +17,13 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from .models import (
-    Base, EventLog, Item, LinkCode, PenaltyRecord, PlatformIdentity, Player,
+    Base, EventLog, Item, PenaltyRecord, PlatformIdentity, Player,
     Quest, QuestParticipant, Setting,
 )
 
 # Parents before children: foreign keys are enforced on Postgres.
 ORDER = [
-    Player, PlatformIdentity, Item, PenaltyRecord, LinkCode,
+    Player, PlatformIdentity, Item, PenaltyRecord,
     Quest, QuestParticipant, Setting, EventLog,
 ]
 

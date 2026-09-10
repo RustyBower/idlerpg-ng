@@ -190,25 +190,87 @@ class TestMergeCommand:
         feed(adapter, f":{nick}!u@h PRIVMSG idlerpg :REGISTER {name} pw Sysadmin")
         return adapter.engine.find_player(name)
 
-    def test_merge_absorbs_the_coded_character(self, adapter):
-        from idlerpg.models import Platform
-        keeper = self._registered(adapter, "rusty", "keeper")
-        other = adapter.engine.register(
-            "other", "pw", "Wizard", Platform.DISCORD, "999"
-        )
-        code = adapter.engine.issue_link_code(other)
+    def test_merge_absorbs_the_named_character(self, adapter):
+        self._registered(adapter, "rusty", "keeper")
+        adapter.engine.register("other", "pw", "Wizard", Platform.DISCORD, "999")
         adapter.writer.lines.clear()
-        feed(adapter, f":rusty!u@h PRIVMSG idlerpg :MERGE {code}")
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :MERGE other pw")
         assert "folded into keeper" in sent(adapter)
         assert adapter.engine.find_player("other") is None
         assert adapter.engine.player_for(Platform.DISCORD, "999").name == "keeper"
 
     def test_merge_requires_being_logged_in(self, adapter):
-        feed(adapter, ":stranger!u@h PRIVMSG idlerpg :MERGE ABCD1234")
-        assert "Log in first" in sent(adapter)
+        feed(adapter, ":stranger!u@h PRIVMSG idlerpg :MERGE other pw")
+        assert "Log in as the character to keep" in sent(adapter)
 
-    def test_a_bad_code_is_reported_not_raised(self, adapter):
+    def test_a_wrong_password_is_reported_not_raised(self, adapter):
         self._registered(adapter)
+        adapter.engine.register("other", "pw", "Wizard", Platform.DISCORD, "999")
         adapter.writer.lines.clear()
-        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :MERGE NOPE0000")
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :MERGE other nope")
         assert "Cannot merge" in sent(adapter)
+        assert adapter.engine.find_player("other") is not None
+
+
+class TestLoginReachesIRC:
+    """Logging in is linking: a character from Discord must earn on IRC too,
+    and stop earning when it leaves."""
+
+    def _discord_character(self, adapter, name="rusty"):
+        e = adapter.engine
+        p = e.register(name, "pw", "Sysadmin", Platform.DISCORD, "999")
+        e.set_presence(Platform.DISCORD, "999", Presence.OFFLINE)
+        return p
+
+    def _irc(self, p):
+        return [i for i in p.identities if i.platform is Platform.IRC]
+
+    def test_login_gives_a_discord_character_an_irc_identity(self, adapter):
+        p = self._discord_character(adapter)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :LOGIN rusty pw")
+        assert len(self._irc(p)) == 1
+        assert p.is_idling
+
+    def test_quitting_irc_stops_it_earning(self, adapter):
+        p = self._discord_character(adapter)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :LOGIN rusty pw")
+        feed(adapter, ":rusty!u@h QUIT :bye")
+        assert not p.is_idling
+
+    def test_logging_in_again_reuses_the_identity(self, adapter):
+        p = self._discord_character(adapter)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :LOGIN rusty pw")
+        feed(adapter, ":rusty!u@h QUIT :bye")
+        feed(adapter, ":other!u@h PRIVMSG idlerpg :LOGIN rusty pw")
+        assert len(self._irc(p)) == 1
+        assert p.is_idling
+
+    def test_a_merge_from_discord_does_not_leave_irc_earning(self, adapter):
+        """The absorbed IRC identity keeps its old name; the nick bound to it
+        must still take it offline when it quits."""
+        e = adapter.engine
+        feed(adapter, ":old!u@h PRIVMSG idlerpg :REGISTER oldirc pw Sysadmin")
+        keeper = self._discord_character(adapter, "keeper")
+        e.merge_by_password(keeper, "oldirc", "pw")  # as !merge on Discord does
+        assert keeper.is_idling  # still sitting on IRC as "old"
+        feed(adapter, ":old!u@h QUIT :bye")
+        assert not keeper.is_idling
+
+    def test_logging_in_after_a_merge_uses_the_absorbed_identity(self, adapter):
+        e = adapter.engine
+        e.register("oldirc", "pw", "Sysadmin", Platform.IRC, "oldirc")
+        keeper = self._discord_character(adapter, "keeper")
+        e.merge_by_password(keeper, "oldirc", "pw")
+        e.reset_presence(Platform.IRC)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :LOGIN keeper pw")
+        assert len(self._irc(keeper)) == 1
+        assert keeper.is_idling
+        feed(adapter, ":rusty!u@h QUIT :bye")
+        assert not keeper.is_idling
+
+    def test_a_new_connection_clears_stale_irc_presence(self, adapter):
+        """Recorded before a restart, bound to no nick: must not keep earning."""
+        p = adapter.engine.register("rusty", "pw", "Sysadmin", Platform.IRC, "rusty")
+        assert p.is_idling
+        feed(adapter, ":server 001 idlerpg :Welcome")
+        assert not p.is_idling
