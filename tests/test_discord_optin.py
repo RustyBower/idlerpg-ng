@@ -12,7 +12,9 @@ import pytest
 from sqlalchemy import create_engine as sa_engine
 from sqlalchemy.orm import Session
 
-from idlerpg.adapters.discord_adapter import OPTIN_MESSAGE_KEY, DiscordAdapter
+from idlerpg.adapters.discord_adapter import (
+    OPTIN_CHANNEL_KEY, OPTIN_MESSAGE_KEY, DiscordAdapter,
+)
 from idlerpg.engine import Engine
 from idlerpg.models import Base
 from idlerpg.rules import Curve
@@ -186,18 +188,44 @@ class TestNoDuplicateMessages:
         assert posted.pinned
 
 
+class _Resp:
+    def __init__(self, status, reason):
+        self.status, self.reason = status, reason
+
+
+def forbidden():
+    import discord
+    return discord.Forbidden(_Resp(403, "Forbidden"), "missing permissions")
+
+
+def not_found():
+    import discord
+    return discord.NotFound(_Resp(404, "Not Found"), "unknown message")
+
+
+class Reaction:
+    def __init__(self, emoji):
+        self.emoji = emoji
+        self.me = True
+
+
 class Msg:
     """A stand-in for the bot's own opt-in post."""
 
-    def __init__(self, id=MSG_ID, content="", pinned=False, can_pin=True):
+    def __init__(self, id=MSG_ID, content="", pinned=False, can_pin=True,
+                 can_react=True, reacted=False):
         self.id = id
         self.content = content
         self.pinned = pinned
         self.can_pin = can_pin
+        self.can_react = can_react
+        self.reactions = [Reaction(EMOJI)] if reacted else []
         self.edits = []
 
-    async def add_reaction(self, _e):
-        return None
+    async def add_reaction(self, emoji):
+        if not self.can_react:
+            raise forbidden()
+        self.reactions.append(Reaction(emoji))
 
     async def edit(self, content):
         self.edits.append(content)
@@ -205,14 +233,100 @@ class Msg:
 
     async def pin(self, reason=None):
         if not self.can_pin:
-            import discord
-
-            class _Resp:
-                status = 403
-                reason = "Forbidden"
-
-            raise discord.Forbidden(_Resp(), "no pin permission")
+            raise forbidden()
         self.pinned = True
+
+
+class NoteChannel:
+    """Keeps whatever the bot posts, so a second start can find it again."""
+
+    def __init__(self, readable=True, can_react=True):
+        self.readable = readable
+        self.can_react = can_react
+        self.messages = {}
+        self.sent = 0
+
+    async def fetch_message(self, mid):
+        if not self.readable:
+            raise forbidden()
+        if mid not in self.messages:
+            raise not_found()
+        return self.messages[mid]
+
+    async def send(self, text):
+        self.sent += 1
+        message = Msg(id=5000 + self.sent, content=text, can_react=self.can_react)
+        self.messages[message.id] = message
+        return message
+
+
+async def start(adapter, monkeypatch, channel):
+    monkeypatch.setattr(adapter, "get_channel", lambda _id: channel)
+    await adapter.ensure_optin_message()
+
+
+class TestRestartsChangeNothing:
+    @pytest.mark.asyncio
+    async def test_two_starts_post_one_note(self, adapter, monkeypatch):
+        chan = NoteChannel()
+        await start(adapter, monkeypatch, chan)
+        await start(adapter, monkeypatch, chan)
+        assert chan.sent == 1
+        note = next(iter(chan.messages.values()))
+        assert note.pinned
+        assert len(note.reactions) == 1
+        assert note.edits == []
+
+    @pytest.mark.asyncio
+    async def test_a_failed_reaction_does_not_cause_a_repost(self, adapter, monkeypatch):
+        chan = NoteChannel(can_react=False)
+        await start(adapter, monkeypatch, chan)
+        await start(adapter, monkeypatch, chan)
+        assert chan.sent == 1
+        assert adapter.engine.get_setting(OPTIN_MESSAGE_KEY) == "5001"
+        assert chan.messages[5001].pinned
+
+    @pytest.mark.asyncio
+    async def test_the_reaction_is_added_once_it_is_allowed(self, adapter, monkeypatch):
+        chan = NoteChannel(can_react=False)
+        await start(adapter, monkeypatch, chan)
+        assert chan.messages[5001].reactions == []
+        chan.messages[5001].can_react = True  # permission granted since
+        await start(adapter, monkeypatch, chan)
+        assert len(chan.messages[5001].reactions) == 1
+        assert chan.sent == 1
+
+
+class TestMovingTheNote:
+    @pytest.mark.asyncio
+    async def test_a_new_channel_gets_a_note_even_if_unreadable(self, adapter, monkeypatch):
+        """The failure that left #idlerpg with no note: the old id was trusted
+        because the new channel's history could not be read."""
+        adapter.engine.set_setting(OPTIN_CHANNEL_KEY, "111")
+        chan = NoteChannel(readable=False)
+        await start(adapter, monkeypatch, chan)
+        assert chan.sent == 1
+        assert adapter.engine.get_setting(OPTIN_MESSAGE_KEY) == "5001"
+        assert adapter.engine.get_setting(OPTIN_CHANNEL_KEY) == str(CHAN_ID)
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_note_in_the_same_channel_is_kept(self, adapter, monkeypatch):
+        adapter.engine.set_setting(OPTIN_CHANNEL_KEY, str(CHAN_ID))
+        chan = NoteChannel(readable=False)
+        await start(adapter, monkeypatch, chan)
+        assert chan.sent == 0
+        assert adapter.engine.get_setting(OPTIN_MESSAGE_KEY) == str(MSG_ID)
+
+    @pytest.mark.asyncio
+    async def test_a_note_found_before_channels_were_recorded_gets_one(
+            self, adapter, monkeypatch):
+        """Notes posted by 0.11.0 have no channel stored; finding one fills it in."""
+        chan = NoteChannel()
+        chan.messages[MSG_ID] = Msg(content=adapter.optin_text, pinned=True,
+                                    reacted=True)
+        await start(adapter, monkeypatch, chan)
+        assert chan.sent == 0
+        assert adapter.engine.get_setting(OPTIN_CHANNEL_KEY) == str(CHAN_ID)
 
 
 class TestTheNoteStaysCurrent:
@@ -239,10 +353,11 @@ class TestTheNoteStaysCurrent:
 
     @pytest.mark.asyncio
     async def test_a_current_note_is_left_alone(self, adapter, monkeypatch):
-        note = Msg(content=adapter.optin_text, pinned=True)
+        note = Msg(content=adapter.optin_text, pinned=True, reacted=True)
         self._serve(adapter, monkeypatch, note)
         await adapter.ensure_optin_message()
         assert note.edits == []
+        assert len(note.reactions) == 1
 
     @pytest.mark.asyncio
     async def test_no_pin_permission_is_not_fatal(self, adapter, monkeypatch):

@@ -49,6 +49,8 @@ PASSWORD_VERBS = frozenset({"register", "login", "merge"})
 
 
 OPTIN_MESSAGE_KEY = "discord_optin_message_id"
+# The channel that message was posted in, so moving the note is noticed.
+OPTIN_CHANNEL_KEY = "discord_optin_channel_id"
 
 OPTIN_TEXT = (
     "**IdleRPG** - a game you play by doing nothing.\n"
@@ -102,6 +104,16 @@ class DiscordAdapter(discord.Client):
             return
 
         stored = self.engine.get_setting(OPTIN_MESSAGE_KEY)
+        stored_channel = self.engine.get_setting(OPTIN_CHANNEL_KEY)
+        if stored and stored_channel not in (None, str(self.optin_channel_id)):
+            # The note is in the channel it was posted to. Looking for it here
+            # would fail, or without Read Message History be taken on trust
+            # and leave the new channel with no note at all.
+            log.info(
+                "opt-in channel moved from %s; posting a new note (the old one "
+                "can be deleted)", stored_channel,
+            )
+            stored = None
         if stored:
             try:
                 existing = await channel.fetch_message(int(stored))
@@ -121,26 +133,43 @@ class DiscordAdapter(discord.Client):
                 log.warning("could not verify the opt-in message; keeping it")
                 return
             else:
+                self._remember_optin(existing)
                 await self._tidy_optin(existing)
                 return
 
         try:
             message = await channel.send(self.optin_text)
-            await message.add_reaction(self.optin_emoji)
         except discord.HTTPException:
             log.exception("could not post the opt-in message")
             return
-        self.engine.set_setting(OPTIN_MESSAGE_KEY, str(message.id))
+        # Remembered before anything else can fail: a note that is posted but
+        # not recorded gets posted again on every start.
+        self._remember_optin(message)
         log.info("posted opt-in message %s", message.id)
-        await self._pin(message)
+        await self._tidy_optin(message)
+
+    def _remember_optin(self, message) -> None:
+        self.engine.set_setting(OPTIN_MESSAGE_KEY, str(message.id))
+        self.engine.set_setting(OPTIN_CHANNEL_KEY, str(self.optin_channel_id))
 
     async def _tidy_optin(self, message) -> None:
-        """Keep a reused opt-in message current: today's wording, and pinned."""
+        """Bring the note up to date: today's wording, its reaction, pinned.
+
+        Each step checks before it acts, so running this on every start
+        changes nothing once the note is right, and a step that failed last
+        time - say for want of a permission since granted - is retried.
+        """
         if message.content != self.optin_text:
             try:
                 await message.edit(content=self.optin_text)
             except discord.HTTPException:
                 log.warning("could not update the opt-in message text")
+        if not any(r.me and str(r.emoji) == self.optin_emoji
+                   for r in message.reactions):
+            try:
+                await message.add_reaction(self.optin_emoji)
+            except discord.HTTPException:
+                log.warning("cannot react to the opt-in message - needs Add Reactions")
         if not message.pinned:
             await self._pin(message)
 
