@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from .models import (
     Base, EventLog, Item, PenaltyRecord, PlatformIdentity, Player,
-    Quest, QuestParticipant, Setting,
+    Quest, QuestParticipant, Setting, upgrade,
 )
 
 # Parents before children: foreign keys are enforced on Postgres.
@@ -35,6 +35,9 @@ def columns(model):
 def migrate(source_url: str, dest_url: str, force: bool = False) -> dict[str, int]:
     src = create_engine(source_url, future=True)
     dst = create_engine(dest_url, future=True)
+    # An older source lacks columns added since; today's models cannot read
+    # it until they exist (nullable, so this adds nothing but the column).
+    upgrade(src)
     Base.metadata.create_all(dst)
 
     counts: dict[str, int] = {}

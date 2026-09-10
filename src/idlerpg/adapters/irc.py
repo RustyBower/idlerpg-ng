@@ -9,12 +9,19 @@ identity is keyed on the character's name when it first reaches IRC - at
 REGISTER, or at LOGIN for a character registered on Discord - with the nick
 currently bound to it kept in display_name. The adapter maps live nicks to
 those identities for the duration of a connection.
+
+That map dies with the bot, so each login's nick!user@host is also stored.
+When the bot rejoins it asks WHO is in the channel and logs back in anyone
+connected from a remembered mask, as the original bot's autologin did; a
+player who turns up later from one is logged in as they join. Quitting,
+parting, being kicked and LOGOUT end a login. A netsplit does not.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import ssl
 from dataclasses import dataclass
 
@@ -62,6 +69,18 @@ HELP = (
     "character too) | LOGOUT | WHOAMI | MERGE <name> <password> (fold another "
     "character of yours into this one)"
 )
+
+
+# A netsplit quits everyone behind it with the two server names as the reason.
+# Users cannot fake one: servers prefix their own quit messages with "Quit:".
+NETSPLIT = re.compile(r"^\S+\.\S+ \S+\.\S+$")
+
+
+def renamed(prefix: str, new_nick: str) -> str | None:
+    """The mask a connection has after changing nick."""
+    if "!" not in prefix:
+        return None
+    return f"{new_nick}!{prefix.split('!', 1)[1]}"
 
 
 class IRCAdapter:
@@ -112,12 +131,12 @@ class IRCAdapter:
         external = self.bound.get(nick.lower())
         return self.engine.player_for(Platform.IRC, external) if external else None
 
-    def bind(self, nick: str, player) -> None:
+    def bind(self, nick: str, player, mask: str | None = None) -> None:
         """Attach ``nick`` to ``player`` and mark them present on IRC.
 
         Logging in is how a character reaches IRC, so one registered on Discord
         gains an IRC identity here. Without it they would show as logged in
-        and earn nothing.
+        and earn nothing. ``mask`` is remembered so the login outlives the bot.
         """
         identity = next(
             (i for i in player.identities if i.platform is Platform.IRC), None
@@ -128,20 +147,47 @@ class IRCAdapter:
         for irc_identity in player.identities:
             if irc_identity.platform is Platform.IRC:
                 irc_identity.display_name = nick
+        if mask:
+            self.engine.remember_login(identity, mask)
         self.engine.set_player_presence(player, Platform.IRC, Presence.ACTIVE)
 
-    def unbind(self, nick: str, penalty: Penalty | None = None) -> None:
+    def unbind(self, nick: str, penalty: Penalty | None = None,
+               forget: bool = True) -> None:
+        """Take ``nick`` offline and, unless ``forget`` is off, end its login.
+
+        Leaving the bot could not see as the player's choice - a netsplit -
+        keeps the login, so it resumes when they come back.
+        """
+        external = self.bound.get(nick.lower())
         player = self.character_for_nick(nick)
         if player is None:
             return
         if penalty is not None:
             self.engine.penalise(player, penalty, platform=Platform.IRC)
+        if forget:
+            identity = self.engine.find_identity(Platform.IRC, external)
+            if identity is not None:
+                self.engine.remember_login(identity, None)
         self.engine.set_player_presence(player, Platform.IRC, Presence.OFFLINE)
         self.bound.pop(nick.lower(), None)
 
+    def resume(self, nick: str, mask: str) -> None:
+        """Log ``nick`` back in if ``mask`` is a login the bot never saw end.
+
+        The full mask rather than the nick: anyone can take a nick and run up
+        its owner's penalties, but a bouncer keeps user@host stable.
+        """
+        if not mask or nick.lower() in self.bound:
+            return
+        identity = self.engine.resume_login(Platform.IRC, mask)
+        if identity is None:
+            return
+        self.bind(nick, identity.player, mask)
+        log.info("resumed %s as %s", nick, identity.player.name)
+
     # -------------------------------------------------------------- commands
 
-    def handle_command(self, nick: str, text: str) -> None:
+    def handle_command(self, nick: str, text: str, mask: str = "") -> None:
         parts = text.strip().split()
         if not parts:
             return
@@ -161,7 +207,7 @@ class IRCAdapter:
             except RegistrationError as exc:
                 self.notice(nick, f"Cannot register: {exc}")
                 return
-            self.bind(nick, player)
+            self.bind(nick, player, mask)
             self.notice(nick, f"Welcome, {player.name}. Now say nothing.")
         elif verb == "LOGIN":
             if len(args) < 2:
@@ -172,7 +218,7 @@ class IRCAdapter:
                 self.notice(nick, "Wrong name or password.")
                 return
             try:
-                self.bind(nick, player)
+                self.bind(nick, player, mask)
             except RegistrationError as exc:
                 self.notice(nick, f"Cannot log in: {exc}")
                 return
@@ -239,7 +285,7 @@ class IRCAdapter:
         elif cmd == "001":  # welcome
             # Nobody is bound on a fresh connection, so any IRC presence still
             # recorded - from before a restart - describes no one and must not
-            # keep earning.
+            # keep earning. Remembered logins come back once we have joined.
             self.engine.reset_presence(Platform.IRC)
             if self.cfg.nickserv_password:
                 self.send(
@@ -263,11 +309,32 @@ class IRCAdapter:
                         message_length=len(msg.text), platform=Platform.IRC,
                     )
             elif target.lower() == self.cfg.nick.lower():
-                self.handle_command(msg.nick, msg.text)
+                self.handle_command(msg.nick, msg.text, msg.prefix)
+        elif cmd == "JOIN":
+            channel = msg.params[0] if msg.params else ""
+            if channel.lower() != self.cfg.channel.lower():
+                return
+            if msg.nick.lower() == self.cfg.nick.lower():
+                # We are in. Ask who else is, so logins from before a restart
+                # resume from the replies.
+                self.send(f"WHO {self.cfg.channel}")
+            else:
+                self.resume(msg.nick, msg.prefix)
+        elif cmd == "352":
+            # WHO reply: me channel user host server nick flags :hops realname
+            if len(msg.params) >= 6 and msg.params[1].lower() == self.cfg.channel.lower():
+                user, host, nick = msg.params[2], msg.params[3], msg.params[5]
+                if nick.lower() != self.cfg.nick.lower():
+                    self.resume(nick, f"{nick}!{user}@{host}")
         elif cmd == "PART":
             self.unbind(msg.nick, Penalty.PART)
         elif cmd == "QUIT":
-            self.unbind(msg.nick, Penalty.QUIT)
+            if NETSPLIT.match(msg.text):
+                # Not the player's doing: no penalty, and the login stands, so
+                # it resumes when the split heals and they rejoin.
+                self.unbind(msg.nick, forget=False)
+            else:
+                self.unbind(msg.nick, Penalty.QUIT)
         elif cmd == "KICK":
             victim = msg.params[1] if len(msg.params) > 1 else ""
             self.unbind(victim, Penalty.KICK)
@@ -276,7 +343,7 @@ class IRCAdapter:
             if player is not None:
                 self.engine.penalise(player, Penalty.NICK, platform=Platform.IRC)
                 self.bound.pop(msg.nick.lower(), None)
-                self.bind(msg.text, player)
+                self.bind(msg.text, player, renamed(msg.prefix, msg.text))
 
     # ------------------------------------------------------------------- run
 

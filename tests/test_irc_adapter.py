@@ -268,9 +268,112 @@ class TestLoginReachesIRC:
         feed(adapter, ":rusty!u@h QUIT :bye")
         assert not keeper.is_idling
 
-    def test_a_new_connection_clears_stale_irc_presence(self, adapter):
+    def test_a_new_connection_clears_stale_irc_presence_until_resumed(self, adapter):
         """Recorded before a restart, bound to no nick: must not keep earning."""
         p = adapter.engine.register("rusty", "pw", "Sysadmin", Platform.IRC, "rusty")
         assert p.is_idling
         feed(adapter, ":server 001 idlerpg :Welcome")
+        assert not p.is_idling
+
+
+MASK = "rusty!ident@cloak.example"
+
+
+class TestLoginsSurviveRestarts:
+    """The original bot's autologin: a connection the bot never saw leave is
+    logged back in by nick!user@host when the bot returns."""
+
+    def _logged_in(self, adapter, name="rusty", mask=MASK):
+        feed(adapter, f":{mask} PRIVMSG idlerpg :REGISTER {name} pw Sysadmin")
+        return adapter.engine.find_player(name)
+
+    def _restart(self, adapter):
+        fresh = IRCAdapter(adapter.engine, Config())
+        fresh.writer = FakeWriter()
+        feed(fresh, ":server 001 idlerpg :Welcome")
+        feed(fresh, ":idlerpg!bot@bot.host JOIN #idlerpg")
+        return fresh
+
+    def _who(self, adapter, nick="rusty", user="ident", host="cloak.example"):
+        feed(adapter, f":server 352 idlerpg #idlerpg {user} {host} irc.server "
+                      f"{nick} H :0 Real Name")
+        feed(adapter, ":server 315 idlerpg #idlerpg :End of /WHO list.")
+
+    def test_the_bot_asks_who_is_here_once_it_has_joined(self, adapter):
+        fresh = self._restart(adapter)
+        assert "WHO #idlerpg" in sent(fresh)
+
+    def test_a_login_is_resumed_after_a_restart(self, adapter):
+        p = self._logged_in(adapter)
+        fresh = self._restart(adapter)
+        assert not p.is_idling  # nobody is anybody until WHO answers
+        self._who(fresh)
+        assert p.is_idling
+        feed(fresh, f":{MASK} PRIVMSG idlerpg :WHOAMI")
+        assert "rusty, level 0" in sent(fresh)
+
+    def test_the_same_nick_from_elsewhere_is_not(self, adapter):
+        p = self._logged_in(adapter)
+        fresh = self._restart(adapter)
+        self._who(fresh, host="somewhere.else")
+        assert not p.is_idling
+
+    def test_turning_up_later_resumes_too(self, adapter):
+        p = self._logged_in(adapter)
+        fresh = self._restart(adapter)
+        self._who(fresh, nick="someone_else", user="x", host="y")
+        feed(fresh, f":{MASK} JOIN #idlerpg")
+        assert p.is_idling
+
+    def test_quitting_ends_the_login(self, adapter):
+        p = self._logged_in(adapter)
+        feed(adapter, f":{MASK} QUIT :Quit: bye")
+        self._who(self._restart(adapter))
+        assert not p.is_idling
+
+    def test_logging_out_ends_the_login(self, adapter):
+        p = self._logged_in(adapter)
+        feed(adapter, f":{MASK} PRIVMSG idlerpg :LOGOUT")
+        self._who(self._restart(adapter))
+        assert not p.is_idling
+
+    def test_parting_ends_the_login(self, adapter):
+        p = self._logged_in(adapter)
+        feed(adapter, f":{MASK} PART #idlerpg")
+        fresh = self._restart(adapter)
+        feed(fresh, f":{MASK} JOIN #idlerpg")
+        assert not p.is_idling
+
+    def test_a_nick_change_carries_the_login(self, adapter):
+        p = self._logged_in(adapter)
+        feed(adapter, f":{MASK} NICK :rusty_away")
+        self._who(self._restart(adapter), nick="rusty_away")
+        assert p.is_idling
+
+    def test_the_connection_follows_the_latest_login(self, adapter):
+        first = self._logged_in(adapter, "first")
+        second = self._logged_in(adapter, "second")  # same connection
+        self._who(self._restart(adapter))
+        assert second.is_idling
+        assert not first.is_idling
+
+    def test_a_netsplit_costs_nothing_and_resumes_on_rejoin(self, adapter):
+        p = self._logged_in(adapter)
+        before = p.next_ttl
+        feed(adapter, f":{MASK} QUIT :irc.east.example irc.west.example")
+        assert p.next_ttl == before
+        assert not p.is_idling
+        feed(adapter, f":{MASK} JOIN #idlerpg")
+        assert p.is_idling
+
+    def test_an_ordinary_quit_is_not_mistaken_for_a_split(self, adapter):
+        p = self._logged_in(adapter)
+        before = p.next_ttl
+        feed(adapter, f":{MASK} QUIT :Quit: irc.east.example irc.west.example")
+        assert p.next_ttl > before
+
+    def test_joins_to_other_channels_are_ignored(self, adapter):
+        p = self._logged_in(adapter)
+        fresh = self._restart(adapter)
+        feed(fresh, f":{MASK} JOIN #elsewhere")
         assert not p.is_idling

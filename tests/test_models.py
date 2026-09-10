@@ -98,3 +98,36 @@ class TestIdleRule:
         # Both are simply "idling" - there is no per-connection multiplier to
         # accumulate, which is what stops two-platform players farming time.
         assert one.is_idling is both.is_idling is True
+
+
+class TestUpgrade:
+    """create_all never alters an existing table, so a database from before a
+    column was added has to be brought up to date on start."""
+
+    def _old_database(self, tmp_path):
+        from sqlalchemy import text
+        engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+        Base.metadata.create_all(engine)
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE platform_identity DROP COLUMN login_mask"))
+        return engine
+
+    def test_adds_a_missing_column(self, tmp_path):
+        from sqlalchemy import inspect
+        from idlerpg.models import upgrade
+        engine = self._old_database(tmp_path)
+        upgrade(engine)
+        columns = {c["name"] for c in inspect(engine).get_columns("platform_identity")}
+        assert "login_mask" in columns
+        with Session(engine) as s:
+            make_player(s, irc=Presence.ACTIVE)  # the models can use it
+
+    def test_running_it_again_changes_nothing(self, tmp_path):
+        from idlerpg.models import upgrade
+        engine = self._old_database(tmp_path)
+        upgrade(engine)
+        upgrade(engine)
+
+    def test_a_fresh_database_is_left_to_create_all(self, tmp_path):
+        from idlerpg.models import upgrade
+        upgrade(create_engine(f"sqlite:///{tmp_path / 'empty.db'}"))

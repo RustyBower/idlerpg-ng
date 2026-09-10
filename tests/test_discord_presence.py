@@ -278,3 +278,17 @@ class TestLoginAndMerge:
 
 async def _noop():
     return None
+
+
+class TestRestarts:
+    """Discord logins need nothing remembered: the account id is durable and
+    the role, re-read on every start, says who is playing."""
+
+    @pytest.mark.asyncio
+    async def test_a_restart_keeps_role_holders_playing(self, adapter, guild, monkeypatch):
+        await command(adapter, Member(guild, role=True), "!register rusty pw Sysadmin")
+        fresh = DiscordAdapter(adapter.engine, channel_id=GAME_CHANNEL,
+                               optin_channel_id=CHAN_ID, optin_role_id=ROLE_ID)
+        monkeypatch.setattr(fresh, "ensure_optin_message", _noop)
+        await fresh.on_ready()
+        assert presence(fresh) is Presence.ACTIVE

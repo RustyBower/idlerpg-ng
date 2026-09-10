@@ -32,10 +32,22 @@ class FakeRole:
 
 
 class FakeMember:
-    def __init__(self, bot=False):
+    def __init__(self, bot=False, dms_closed=False):
         self.id = USER_ID
         self.bot = bot
         self.added, self.removed = [], []
+        self.dms = []
+        self.dms_closed = dms_closed
+
+    async def send(self, text):
+        if self.dms_closed:
+            import discord
+
+            class _R:
+                status, reason = 403, "Forbidden"
+
+            raise discord.Forbidden(_R(), "Cannot send messages to this user")
+        self.dms.append(text)
 
     async def add_roles(self, role, reason=None):
         self.added.append(role.id)
@@ -130,6 +142,44 @@ class TestGranting:
         monkeypatch.setattr(adapter, "get_guild", lambda _id: FakeGuild(member))
         await adapter.on_raw_reaction_add(Payload(emoji="x", member=member))
         assert member.added == []
+
+
+class TestReactingExplainsHowToPlay:
+    """Reacting gets you the channel but no character; the DM is the rest."""
+
+    @pytest.mark.asyncio
+    async def test_someone_without_a_character_is_told_how_to_register(
+            self, adapter, monkeypatch):
+        member = FakeMember()
+        monkeypatch.setattr(adapter, "get_guild", lambda _id: FakeGuild(member))
+        await adapter.on_raw_reaction_add(Payload(member=member))
+        assert member.added == [ROLE_ID]
+        assert len(member.dms) == 1
+        assert "!register" in member.dms[0] and "!login" in member.dms[0]
+
+    @pytest.mark.asyncio
+    async def test_a_player_is_not_told_again(self, adapter, monkeypatch):
+        from idlerpg.models import Platform
+        adapter.engine.register("rusty", "pw", "Sysadmin", Platform.DISCORD, str(USER_ID))
+        member = FakeMember()
+        monkeypatch.setattr(adapter, "get_guild", lambda _id: FakeGuild(member))
+        await adapter.on_raw_reaction_add(Payload(member=member))
+        assert member.added == [ROLE_ID]
+        assert member.dms == []
+
+    @pytest.mark.asyncio
+    async def test_closed_dms_still_get_the_role(self, adapter, monkeypatch):
+        member = FakeMember(dms_closed=True)
+        monkeypatch.setattr(adapter, "get_guild", lambda _id: FakeGuild(member))
+        await adapter.on_raw_reaction_add(Payload(member=member))
+        assert member.added == [ROLE_ID]
+
+    @pytest.mark.asyncio
+    async def test_other_reactions_send_nothing(self, adapter, monkeypatch):
+        member = FakeMember()
+        monkeypatch.setattr(adapter, "get_guild", lambda _id: FakeGuild(member))
+        await adapter.on_raw_reaction_add(Payload(emoji="x", member=member))
+        assert member.dms == []
 
 
 class TestPersistence:

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from .adapters.irc import IRCAdapter
 from .config import Config
 from .engine import Engine
-from .models import Base
+from .models import Base, upgrade
 
 
 def main() -> int:
@@ -27,6 +27,7 @@ def main() -> int:
     config = Config()
     db = sa_create_engine(config.database_url, future=True)
     Base.metadata.create_all(db)
+    upgrade(db)
     log.info("database ready at %s", config.database_url.split("@")[-1])
 
     with Session(db) as session:

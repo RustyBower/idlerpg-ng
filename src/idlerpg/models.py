@@ -24,6 +24,8 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -121,6 +123,10 @@ class PlatformIdentity(Base):
     presence_since: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
+    # The connection this identity is logged in from, kept across restarts so
+    # the login can be resumed: nick!user@host on IRC. Discord needs none - its
+    # account id is already durable, and the role says who is playing.
+    login_mask: Mapped[str | None] = mapped_column(String(255), default=None)
 
     player: Mapped[Player] = relationship(back_populates="identities")
 
@@ -220,3 +226,30 @@ class EventLog(Base):
     at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now()
     )
+
+
+# Columns added after their table first shipped. create_all makes missing
+# tables but never alters an existing one, so these are added by hand.
+ADDED_COLUMNS = [
+    ("platform_identity", "login_mask", "VARCHAR(255)"),
+]
+
+
+def upgrade(db) -> None:
+    """Bring an existing database up to the current models.
+
+    Safe on every start and from two processes at once - the bot and the
+    website both run it, and either may start first against an old database.
+    """
+    inspector = inspect(db)
+    tables = set(inspector.get_table_names())
+    guard = "IF NOT EXISTS " if db.dialect.name == "postgresql" else ""
+    with db.begin() as conn:
+        for table, column, ddl_type in ADDED_COLUMNS:
+            if table not in tables:
+                continue  # create_all makes it whole
+            if column in {c["name"] for c in inspector.get_columns(table)}:
+                continue
+            conn.execute(text(
+                f"ALTER TABLE {table} ADD COLUMN {guard}{column} {ddl_type}"
+            ))

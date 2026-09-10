@@ -24,9 +24,15 @@ Running at [idlerpg.129irc.com](https://idlerpg.129irc.com/) on
 The network blocks private messages from brand new connections, so wait about
 two minutes after connecting before registering.
 
+Logins survive the bot restarting: it logs you back in when it rejoins, as
+long as you are connected from the same `nick!user@host` - which a bouncer
+keeps stable. Quitting, parting, being kicked and `LOGOUT` end a login; a
+netsplit does not, and costs nothing.
+
 **Discord** — send the bot a **direct message**. Registering or logging in
 gives you the game role, which is what lets you see the game channel and what
-keeps your character idling:
+keeps your character idling. Reacting to the bot's pinned note gets you the
+role too, and a DM explaining how to register if you have no character yet:
 
     !register <name> <password> <class>
     !login <name> <password>

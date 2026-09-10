@@ -54,12 +54,25 @@ OPTIN_CHANNEL_KEY = "discord_optin_channel_id"
 
 OPTIN_TEXT = (
     "**IdleRPG** - a game you play by doing nothing.\n"
-    "DM me `!register <name> <password> <class>` to make a character; that "
-    "also gives you the game channel. Already playing on IRC? DM me "
+    "React with {emoji} for the game channel and I will DM you how to start. "
+    "Or DM me `!register <name> <password> <class>` straight away - that gives "
+    "you the channel too. Already playing on IRC? DM me "
     "`!login <name> <password>` instead and it becomes one character on both.\n\n"
-    "Your character idles for as long as you keep the game role. React with "
-    "{emoji} to see the channel without playing; removing your reaction takes "
-    "the role away again, and with a character that counts as leaving the game."
+    "Your character idles for as long as you keep the game role. Removing your "
+    "reaction takes the role away, and with a character that counts as leaving "
+    "the game."
+)
+
+# Sent to someone who reacts to the note without a character: reacting gets
+# them the channel but nothing to play with.
+HOW_TO_PLAY = (
+    "**Welcome to IdleRPG** - a game you play by doing nothing.\n"
+    "Make a character by replying here: `!register <name> <password> <class>` "
+    "(the class is just for show). Already playing on IRC? Send "
+    "`!login <name> <password>` instead and it becomes one character on both.\n"
+    "After that, just stay: your character levels up for as long as you keep "
+    "the game role, and talking in the game channel sets it back. `!help` "
+    "lists the rest."
 )
 
 
@@ -205,6 +218,18 @@ class DiscordAdapter(discord.Client):
             log.warning("cannot grant %s - check Manage Roles and role order", role)
         except discord.HTTPException:
             log.exception("failed granting the opt-in role")
+        await self._explain(member)
+
+    async def _explain(self, member) -> None:
+        """DM someone who reacted without a character how to make one."""
+        if self.engine.player_for(Platform.DISCORD, str(member.id)) is not None:
+            return
+        try:
+            await member.send(HOW_TO_PLAY)
+        except discord.HTTPException:
+            # DMs from server members switched off. The pinned note says the
+            # same thing, so there is nothing more to do.
+            log.info("could not DM %s how to play", member)
 
     async def on_raw_reaction_remove(self, payload) -> None:
         if not self._is_optin_reaction(payload):

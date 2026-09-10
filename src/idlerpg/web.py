@@ -21,7 +21,9 @@ from urllib.parse import unquote, quote
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from .models import EventLog, PenaltyRecord, Player, Quest, QuestParticipant
+from .models import (
+    EventLog, PenaltyRecord, Player, Quest, QuestParticipant, upgrade,
+)
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:////data/idlerpg.db")
 PORT = int(os.environ.get("PORT", "8080"))
@@ -40,7 +42,12 @@ def db():
     """Lazily built so importing this module never opens a connection."""
     global _engine
     if _engine is None:
-        _engine = create_engine(DATABASE_URL, pool_pre_ping=True, future=True)
+        engine = create_engine(DATABASE_URL, pool_pre_ping=True, future=True)
+        # The site reads whole identity rows, so a column the bot's models
+        # know and the database does not yet have would break every page.
+        # Either may start first; both bring the schema up to date.
+        upgrade(engine)
+        _engine = engine
     return _engine
 
 
@@ -649,7 +656,9 @@ def page_game():
 </table>
 <p class="muted">Connect to <code>irc.129irc.com</code> on port <code>6697</code> with
 TLS and join <code>{E(CHANNEL)}</code>. The network blocks private messages from brand
-new connections, so wait about two minutes after connecting before you register.</p>
+new connections, so wait about two minutes after connecting before you register.
+If the bot restarts it logs you back in by itself, as long as you are still connected
+from the same address - a bouncer keeps that stable.</p>
 
 <h2>Getting started on Discord</h2>
 <table>

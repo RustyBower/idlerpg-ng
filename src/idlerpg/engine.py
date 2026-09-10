@@ -204,6 +204,39 @@ class Engine:
         if changed:
             self.session.commit()
 
+    def remember_login(self, identity: PlatformIdentity,
+                       mask: str | None) -> None:
+        """Record the connection an identity is logged in from, or forget it.
+
+        Stored rather than held by the adapter, so a login the bot never saw
+        end - it restarted, or a netsplit took the player away - can be
+        resumed. A connection belongs to one identity at a time: logging in as
+        another character from it moves it there.
+        """
+        mask = mask.lower() if mask else None
+        if mask is not None:
+            self.session.execute(
+                update(PlatformIdentity)
+                .where(
+                    PlatformIdentity.platform == identity.platform,
+                    PlatformIdentity.login_mask == mask,
+                    PlatformIdentity.id != identity.id,
+                )
+                .values(login_mask=None)
+            )
+        identity.login_mask = mask
+        self.session.commit()
+
+    def resume_login(self, platform: Platform,
+                     mask: str) -> PlatformIdentity | None:
+        """The identity last logged in from this connection, if any."""
+        return self.session.scalar(
+            select(PlatformIdentity).where(
+                PlatformIdentity.platform == platform,
+                PlatformIdentity.login_mask == mask.lower(),
+            )
+        )
+
     def reset_presence(self, platform: Platform) -> None:
         """Mark everyone offline on ``platform``.
 
