@@ -216,6 +216,19 @@ def move_player(player, map_x: int, map_y: int, rng: random.Random) -> None:
         player.y = (player.y + rng.choice((-1, 1))) % map_y
 
 
+def step_toward(player, x: int, y: int, steps: int = 1) -> None:
+    """Walk up to ``steps`` squares toward (x, y), diagonals allowed.
+
+    For a journey's party, which the original walks to each waypoint rather
+    than leaving to stumble onto it by chance.
+    """
+    for _ in range(max(0, steps)):
+        if (player.x, player.y) == (x, y):
+            return
+        player.x += (x > player.x) - (x < player.x)
+        player.y += (y > player.y) - (y < player.y)
+
+
 def should_fire(interval_seconds: float, elapsed: float, weight: float,
                 rng: random.Random) -> bool:
     """Rate-based roll: on average once per interval, per unit of weight.
@@ -281,36 +294,64 @@ def team_battle(online: list, rng: random.Random, map_x: int,
 QUADRANTS = ("Northeast", "Southeast", "Southwest", "Northwest")
 
 
+# How far a war moves clocks. The original halves the winners' remaining time
+# and doubles the losers'; in a realm of a handful of players one roll of that
+# outweighs days of idling, so the stakes here are gentler.
+WAR_SHIFT = 0.15
+
+
+def quadrant(player, map_x: int, map_y: int) -> int | None:
+    """The quadrant a player stands in, or None exactly on a meridian."""
+    if 2 * player.y + 1 < map_y:
+        return 3 if 2 * player.x + 1 < map_x else 0
+    if 2 * player.y + 1 > map_y:
+        return 2 if 2 * player.x + 1 < map_x else 1
+    return None
+
+
 def war(online: list, rng: random.Random, map_x: int, map_y: int) -> list[Outcome]:
-    """The four quadrants of the map fight; a quadrant wins by beating both
-    of its neighbours."""
+    """The four quadrants of the map fight.
+
+    A quadrant that beats both of its neighbours prevails and its players move
+    WAR_SHIFT closer to their next level; one that loses to both is routed and
+    set back by as much. Empty quadrants neither win nor lose.
+    """
     if len(online) < 4:
         return []
-    sums = [0, 0, 0, 0]
+    armies: dict[int, list] = {0: [], 1: [], 2: [], 3: []}
     for p in online:
-        if 2 * p.y + 1 < map_y:
-            q = 3 if 2 * p.x + 1 < map_x else 0
-        elif 2 * p.y + 1 > map_y:
-            q = 2 if 2 * p.x + 1 < map_x else 1
-        else:
-            continue  # exactly on the meridian, in no quadrant
-        sums[q] += item_sum(p)
+        q = quadrant(p, map_x, map_y)
+        if q is not None:
+            armies[q].append(p)
+    sums = [sum(item_sum(p) for p in armies[q]) for q in range(4)]
 
     if not any(sums):
         return []
     rolls = [rng.randrange(s) if s else 0 for s in sums]
-    winners = [
-        i for i in range(4)
-        if rolls[i] >= rolls[(i + 1) % 4] and rolls[i] >= rolls[(i + 3) % 4]
-    ]
+    neighbours = [((i + 1) % 4, (i + 3) % 4) for i in range(4)]
+    winners = [i for i in range(4) if sums[i]
+               and all(rolls[i] >= rolls[n] for n in neighbours[i])]
+    losers = [i for i in range(4) if sums[i]
+              and all(rolls[i] < rolls[n] for n in neighbours[i])]
     if not winners:
         return []
+
+    for i in winners:
+        for p in armies[i]:
+            p.next_ttl = max(1, int(p.next_ttl * (1 - WAR_SHIFT)))
+    for i in losers:
+        for p in armies[i]:
+            p.next_ttl = int(p.next_ttl * (1 + WAR_SHIFT))
+
+    percent = round(WAR_SHIFT * 100)
     named = " and ".join(QUADRANTS[i] for i in winners)
     detail = ", ".join(f"{QUADRANTS[i]} [{rolls[i]}/{sums[i]}]" for i in range(4))
-    return [Outcome(
-        f"The quadrants went to war: {detail}. {named} prevailed.",
-        kind="war",
-    )]
+    message = (f"The quadrants went to war: {detail}. {named} prevailed, and "
+               f"their people are {percent}% closer to their next level.")
+    if losers:
+        routed = " and ".join(QUADRANTS[i] for i in losers)
+        message += f" {routed} fell, and are set back {percent}%."
+    return [Outcome(message, kind="war")]
 
 
 def goodness(online: list, rng: random.Random) -> list[Outcome]:

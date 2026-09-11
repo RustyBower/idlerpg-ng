@@ -94,6 +94,12 @@ class IRCAdapter:
         self.bound: dict[str, str] = {}
         # Only attempt self-registration once per connection.
         self.registration_attempted = False
+        # Nicks in the game channel. Only they earn: the game is sitting in
+        # the channel, not being logged in from somewhere else.
+        self.members: set[str] = set()
+        # The nick we actually hold. It differs from cfg.nick while another
+        # connection has ours - usually our own, from before a restart.
+        self.nick = self.cfg.nick
 
     # ------------------------------------------------------------------ wire
 
@@ -108,7 +114,8 @@ class IRCAdapter:
             self.cfg.host, self.cfg.port, ssl=context
         )
         log.info("connected to %s:%s", self.cfg.host, self.cfg.port)
-        self.send(f"NICK {self.cfg.nick}")
+        self.nick = self.cfg.nick
+        self.send(f"NICK {self.nick}")
         self.send(f"USER {self.cfg.user} 0 * :{self.cfg.realname}")
 
     def send(self, line: str) -> None:
@@ -131,25 +138,31 @@ class IRCAdapter:
         external = self.bound.get(nick.lower())
         return self.engine.player_for(Platform.IRC, external) if external else None
 
-    def bind(self, nick: str, player, mask: str | None = None) -> None:
-        """Attach ``nick`` to ``player`` and mark them present on IRC.
+    def bind(self, nick: str, player, mask: str | None = None) -> bool:
+        """Attach ``nick`` to ``player``; returns whether they are now earning.
 
         Logging in is how a character reaches IRC, so one registered on Discord
-        gains an IRC identity here. Without it they would show as logged in
-        and earn nothing. ``mask`` is remembered so the login outlives the bot.
+        gains an IRC identity here. ``mask`` is remembered so the login
+        outlives the bot. A nick holds one login at a time: logging in as
+        another character ends the first, which would otherwise go on earning.
+        Logged in from outside the channel, a character earns nothing until
+        the nick joins it.
         """
         identity = next(
             (i for i in player.identities if i.platform is Platform.IRC), None
         )
         if identity is None:
             identity = self.engine.link(player, Platform.IRC, player.name, nick)
+        previous = self.bound.get(nick.lower())
+        if previous is not None and previous != identity.external_id:
+            self.unbind(nick)
         self.bound[nick.lower()] = identity.external_id
         for irc_identity in player.identities:
             if irc_identity.platform is Platform.IRC:
                 irc_identity.display_name = nick
         if mask:
             self.engine.remember_login(identity, mask)
-        self.engine.set_player_presence(player, Platform.IRC, Presence.ACTIVE)
+        return self._settle(player, identity.external_id)
 
     def unbind(self, nick: str, penalty: Penalty | None = None,
                forget: bool = True) -> None:
@@ -161,6 +174,7 @@ class IRCAdapter:
         external = self.bound.get(nick.lower())
         player = self.character_for_nick(nick)
         if player is None:
+            self.bound.pop(nick.lower(), None)
             return
         if penalty is not None:
             self.engine.penalise(player, penalty, platform=Platform.IRC)
@@ -168,8 +182,29 @@ class IRCAdapter:
             identity = self.engine.find_identity(Platform.IRC, external)
             if identity is not None:
                 self.engine.remember_login(identity, None)
-        self.engine.set_player_presence(player, Platform.IRC, Presence.OFFLINE)
         self.bound.pop(nick.lower(), None)
+        self._settle(player, external)
+
+    def _settle(self, player, external: str) -> bool:
+        """Set a character's IRC presence from the channel; returns it.
+
+        Present while any nick logged in as it sits in the channel, so a
+        character on two nicks is not taken offline when one of them leaves.
+        """
+        here = any(
+            ext == external and nick in self.members
+            for nick, ext in self.bound.items()
+        )
+        self.engine.set_player_presence(
+            player, Platform.IRC, Presence.ACTIVE if here else Presence.OFFLINE
+        )
+        return here
+
+    def _own_nick(self, new: str) -> None:
+        self.nick = new
+        if new.lower() == self.cfg.nick.lower() and self.cfg.nickserv_password:
+            # Back on our own nick after a stand-in: identify to it.
+            self.send(f"PRIVMSG NickServ :IDENTIFY {self.cfg.nickserv_password}")
 
     def resume(self, nick: str, mask: str) -> None:
         """Log ``nick`` back in if ``mask`` is a login the bot never saw end.
@@ -207,8 +242,9 @@ class IRCAdapter:
             except RegistrationError as exc:
                 self.notice(nick, f"Cannot register: {exc}")
                 return
-            self.bind(nick, player, mask)
-            self.notice(nick, f"Welcome, {player.name}. Now say nothing.")
+            here = self.bind(nick, player, mask)
+            self.notice(nick, f"Welcome, {player.name}. Now say nothing."
+                              + self._join_hint(here))
         elif verb == "LOGIN":
             if len(args) < 2:
                 self.notice(nick, "LOGIN <name> <password>")
@@ -218,11 +254,12 @@ class IRCAdapter:
                 self.notice(nick, "Wrong name or password.")
                 return
             try:
-                self.bind(nick, player, mask)
+                here = self.bind(nick, player, mask)
             except RegistrationError as exc:
                 self.notice(nick, f"Cannot log in: {exc}")
                 return
-            self.notice(nick, f"Logged in as {player.name}, level {player.level}.")
+            self.notice(nick, f"Logged in as {player.name}, level {player.level}."
+                              + self._join_hint(here))
         elif verb == "LOGOUT":
             player = self.character_for_nick(nick)
             if player is None:
@@ -279,11 +316,18 @@ class IRCAdapter:
         else:
             self.notice(nick, HELP)
 
+    def _join_hint(self, here: bool) -> str:
+        return "" if here else f" Join {self.cfg.channel} to start idling."
+
     def handle_notice(self, msg: Message) -> None:
-        """Watch for services telling us our own nick is unregistered."""
+        """Watch services: our ghost removed, or our own nick unregistered."""
         if msg.nick.lower() != "nickserv":
             return
         text = msg.text.lower()
+        if "ghost" in text and self.nick.lower() != self.cfg.nick.lower():
+            # Whatever held our nick is gone; take it back.
+            self.send(f"NICK {self.cfg.nick}")
+            return
         if self.registration_attempted or not self.cfg.nickserv_email:
             return
         if "not registered" in text or "isn\'t registered" in text:
@@ -298,55 +342,96 @@ class IRCAdapter:
 
     def handle(self, msg: Message) -> None:
         cmd = msg.command
+        channel = self.cfg.channel.lower()
         if cmd == "PING":
             self.send(f"PONG :{msg.text}")
         elif cmd == "001":  # welcome
+            if msg.params:
+                self.nick = msg.params[0]
             # Nobody is bound on a fresh connection, so any IRC presence still
             # recorded - from before a restart - describes no one and must not
             # keep earning. Remembered logins come back once we have joined.
             self.engine.reset_presence(Platform.IRC)
             if self.cfg.nickserv_password:
-                self.send(
-                    f"PRIVMSG NickServ :IDENTIFY {self.cfg.nickserv_password}"
-                )
-                if self.cfg.nickserv_email:
-                    # Provokes "not registered" if it isn't, which drives
-                    # handle_notice() into registering the nick.
-                    self.send(f"PRIVMSG NickServ :INFO {self.cfg.nick}")
+                if self.nick.lower() != self.cfg.nick.lower():
+                    # Something holds our nick - usually our own connection
+                    # from before a restart, not yet timed out. Have services
+                    # remove it; the NICK back follows their notice.
+                    self.send(
+                        f"PRIVMSG NickServ :GHOST {self.cfg.nick} "
+                        f"{self.cfg.nickserv_password}"
+                    )
+                else:
+                    self.send(
+                        f"PRIVMSG NickServ :IDENTIFY {self.cfg.nickserv_password}"
+                    )
+                    if self.cfg.nickserv_email:
+                        # Provokes "not registered" if it isn't, which drives
+                        # handle_notice() into registering the nick.
+                        self.send(f"PRIVMSG NickServ :INFO {self.cfg.nick}")
             self.registration_attempted = False
             self.send(f"JOIN {self.cfg.channel}")
+        elif cmd == "433":
+            # Nick in use. Take a stand-in and reclaim ours once it is free;
+            # without this the connection never finishes registering.
+            taken = msg.params[1] if len(msg.params) > 1 else self.nick
+            self.nick = f"{taken}_"
+            self.send(f"NICK {self.nick}")
         elif cmd == "NOTICE":
             self.handle_notice(msg)
         elif cmd == "PRIVMSG":
             target = msg.params[0] if msg.params else ""
-            if target.lower() == self.cfg.channel.lower():
+            if target.lower() == channel:
                 player = self.character_for_nick(msg.nick)
                 if player is not None:
                     self.engine.penalise(
                         player, Penalty.MESSAGE,
                         message_length=len(msg.text), platform=Platform.IRC,
                     )
-            elif target.lower() == self.cfg.nick.lower():
+            elif target.lower() == self.nick.lower():
                 self.handle_command(msg.nick, msg.text, msg.prefix)
         elif cmd == "JOIN":
-            channel = msg.params[0] if msg.params else ""
-            if channel.lower() != self.cfg.channel.lower():
+            where = msg.params[0] if msg.params else ""
+            if where.lower() != channel:
                 return
-            if msg.nick.lower() == self.cfg.nick.lower():
-                # We are in. Ask who else is, so logins from before a restart
-                # resume from the replies.
+            if msg.nick.lower() == self.nick.lower():
+                # We are in. Ask who else is: the replies fill in the members
+                # and resume logins from before a restart.
+                self.members.clear()
                 self.send(f"WHO {self.cfg.channel}")
+                return
+            self.members.add(msg.nick.lower())
+            external = self.bound.get(msg.nick.lower())
+            player = self.character_for_nick(msg.nick) if external else None
+            if player is not None:
+                self._settle(player, external)  # logged in first, joined now
             else:
                 self.resume(msg.nick, msg.prefix)
+        elif cmd == "353":
+            # NAMES reply: me = channel :nick @op +voiced ...
+            if len(msg.params) >= 4 and msg.params[2].lower() == channel:
+                for name in msg.text.split():
+                    self.members.add(name.lstrip("~&@%+").lower())
         elif cmd == "352":
             # WHO reply: me channel user host server nick flags :hops realname
-            if len(msg.params) >= 6 and msg.params[1].lower() == self.cfg.channel.lower():
+            if len(msg.params) >= 6 and msg.params[1].lower() == channel:
                 user, host, nick = msg.params[2], msg.params[3], msg.params[5]
-                if nick.lower() != self.cfg.nick.lower():
+                if nick.lower() != self.nick.lower():
+                    self.members.add(nick.lower())
                     self.resume(nick, f"{nick}!{user}@{host}")
         elif cmd == "PART":
+            where = msg.params[0] if msg.params else ""
+            if where.lower() != channel:
+                return
+            self.members.discard(msg.nick.lower())
             self.unbind(msg.nick, Penalty.PART)
         elif cmd == "QUIT":
+            self.members.discard(msg.nick.lower())
+            if (msg.nick.lower() == self.cfg.nick.lower()
+                    and self.nick.lower() != self.cfg.nick.lower()):
+                # Whatever held our nick has gone: take it back.
+                self.send(f"NICK {self.cfg.nick}")
+                return
             if NETSPLIT.match(msg.text):
                 # Not the player's doing: no penalty, and the login stands, so
                 # it resumes when the split heals and they rejoin.
@@ -354,14 +439,25 @@ class IRCAdapter:
             else:
                 self.unbind(msg.nick, Penalty.QUIT)
         elif cmd == "KICK":
+            where = msg.params[0] if msg.params else ""
             victim = msg.params[1] if len(msg.params) > 1 else ""
+            if where.lower() != channel:
+                return
+            self.members.discard(victim.lower())
             self.unbind(victim, Penalty.KICK)
         elif cmd == "NICK":
+            new = msg.text
+            if msg.nick.lower() == self.nick.lower():
+                self._own_nick(new)
+                return
+            if msg.nick.lower() in self.members:
+                self.members.discard(msg.nick.lower())
+                self.members.add(new.lower())
             player = self.character_for_nick(msg.nick)
             if player is not None:
                 self.engine.penalise(player, Penalty.NICK, platform=Platform.IRC)
                 self.bound.pop(msg.nick.lower(), None)
-                self.bind(msg.text, player, renamed(msg.prefix, msg.text))
+                self.bind(new, player, renamed(msg.prefix, new))
 
     # ------------------------------------------------------------------- run
 
@@ -413,6 +509,7 @@ class IRCAdapter:
             # to us any more, and should not accrue time until they return.
             self.engine.reset_presence(Platform.IRC)
             self.bound.clear()
+            self.members.clear()
             if self.writer:
                 self.writer.close()
                 self.writer = None

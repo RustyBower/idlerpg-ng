@@ -36,8 +36,10 @@ from .rules import Curve, Penalty, penalty_seconds, ttl
 
 log = logging.getLogger(__name__)
 
-MAP_X = int(os.environ.get("MAP_X", "500"))
-MAP_Y = int(os.environ.get("MAP_Y", "500"))
+# One setting for the realm's size, read by the website too. IRPG_MAPX and
+# IRPG_MAPY are the names the site used to read on its own; they still work.
+MAP_X = int(os.environ.get("MAP_X") or os.environ.get("IRPG_MAPX") or 500)
+MAP_Y = int(os.environ.get("MAP_Y") or os.environ.get("IRPG_MAPY") or 500)
 
 
 def events_map_x() -> int:
@@ -302,10 +304,14 @@ class Engine:
             player.next_ttl = int(remaining)
 
         announcements.extend(self._world_events(online, elapsed_seconds))
-        announcements.extend(self._quest_events(online, elapsed_seconds))
 
+        # A journey's party walks toward its waypoint; everyone else drifts.
+        walked = quests.steer(self.session, elapsed_seconds, self.rng)
         for player in online:
-            events.move_player(player, events_map_x(), events_map_y(), self.rng)
+            if player.id not in walked:
+                events.move_player(player, events_map_x(), events_map_y(), self.rng)
+
+        announcements.extend(self._quest_events(online, elapsed_seconds))
 
         for outcome in announcements:
             self.log_event(outcome.kind, outcome.message, commit=False)
@@ -397,8 +403,8 @@ class Engine:
         )
         player.next_ttl += seconds
         if kind is not Penalty.QUEST:
-            # A quester who talks, parts or quits fails it for everyone.
-            self._pending.extend(quests.fail(self.session, player))
+            # A quester who talks, parts or quits fails it for the party.
+            self._pending.extend(quests.fail(self.session, player, self.curve))
         self.session.add(
             PenaltyRecord(
                 player_id=player.id,

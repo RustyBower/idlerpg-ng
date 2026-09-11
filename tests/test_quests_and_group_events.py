@@ -77,6 +77,26 @@ class TestWar:
         out = events.war(players, engine.rng, 500, 500)
         assert out and "prevailed" in out[0].message
 
+    def test_winners_move_closer_and_losers_fall_back(self, engine):
+        class TopRoll:  # every army rolls its full strength
+            def randrange(self, n):
+                return n - 1
+
+        ne, se, sw, nw = make(engine, 4)
+        placed = {ne: (450, 50, 100), se: (450, 450, 50),
+                  sw: (50, 450, 10), nw: (50, 50, 50)}
+        for p, (x, y, value) in placed.items():
+            p.x, p.y, p.next_ttl = x, y, 1000
+            for item in p.items:
+                item.value = value
+        engine.session.commit()
+        out = events.war([ne, se, sw, nw], TopRoll(), 500, 500)
+        # NE (1000) beats both neighbours; SW (100) loses to both.
+        assert ne.next_ttl == 850
+        assert sw.next_ttl == 1150
+        assert se.next_ttl == nw.next_ttl == 1000
+        assert "set back 15%" in out[0].message
+
 
 class TestAlignment:
     def test_goodness_needs_two_good_players(self, engine):
@@ -158,18 +178,103 @@ class TestQuests:
         out = quests.advance(engine.session, quest, engine.rng)
         assert out and "completing their quest" in out[0].message
 
-    def test_a_quester_speaking_fails_it_for_the_whole_realm(self, engine):
+    def test_a_quester_speaking_sets_the_party_back_and_nobody_else(self, engine):
+        from idlerpg.models import PenaltyRecord
+        from idlerpg.rules import penalty_seconds
         party = make(engine, 4, level=45)
         bystander = engine.register("watcher", "pw", "Bard", Platform.IRC, "watcher")
         bystander.next_ttl = 1000
+        for p in party:
+            p.next_ttl = 1000
         quests.start(engine.session, party, engine.rng, 500, 500)
         engine.session.commit()
 
-        engine.penalise(party[0], Penalty.MESSAGE, message_length=20)
+        spoke = engine.penalise(party[0], Penalty.MESSAGE, message_length=20)
         assert quests.active_quest(engine.session) is None
-        # Everyone pays, not just the offender.
-        assert bystander.next_ttl == 1150
-        assert any("wrath of the gods" in o.message for o in engine._pending)
+        step = penalty_seconds(Penalty.QUEST, 45)
+        assert party[0].next_ttl == 1000 + spoke + step   # their slip, and the vow
+        assert all(p.next_ttl == 1000 + step for p in party[1:])
+        assert bystander.next_ttl == 1000                  # not their quest
+        records = engine.session.query(PenaltyRecord).filter_by(kind="quest").all()
+        assert len(records) == 4
+        assert any("wrath of the gods upon the quest" in o.message for o in engine._pending)
+
+    def test_no_quest_for_twelve_hours_after_a_failure(self, engine):
+        from idlerpg.models import Setting
+        party = make(engine, 4, level=45)
+        quests.start(engine.session, party, engine.rng, 500, 500)
+        engine.session.commit()
+        engine.penalise(party[0], Penalty.MESSAGE, message_length=5)
+        assert quests.start(engine.session, party, engine.rng, 500, 500) is None
+        rest = engine.session.get(Setting, quests.REST_KEY)
+        rest.value = (utcnow() - timedelta(seconds=1)).isoformat()
+        engine.session.commit()
+        assert quests.start(engine.session, party, engine.rng, 500, 500) is not None
+
+    def _journey(self, engine, party, target=(10, 10), then=(20, 20)):
+        quests.start(engine.session, party, engine.rng, 500, 500)
+        quest = quests.active_quest(engine.session)
+        quest.kind, quest.stage = 2, 1
+        quest.x1, quest.y1 = target
+        quest.x2, quest.y2 = then
+        quest.expires = utcnow() + quests.JOURNEY_TIMEOUT
+        engine.session.commit()
+        return quest
+
+    def test_the_party_walks_to_the_waypoint(self, engine):
+        party = make(engine, 4, level=45)
+        for i, p in enumerate(party):
+            p.x, p.y = 100 + i * 7, 300 - i * 11
+        outsider = make(engine, 1, level=45)[0]
+        outsider.x, outsider.y = 400, 400
+        quest = self._journey(engine, party)
+        walked = quests.steer(engine.session, quests.JOURNEY_PACE * 1000, engine.rng)
+        assert walked == {p.id for p in party}
+        assert all((p.x, p.y) == (10, 10) for p in party)
+        assert (outsider.x, outsider.y) == (400, 400)
+        out = quests.advance(engine.session, quest, engine.rng)
+        assert out and "first waypoint" in out[0].message
+
+    def test_the_pace_is_a_step_per_half_minute(self, engine):
+        party = make(engine, 4, level=45)
+        for p in party:
+            p.x, p.y = 200, 200
+        self._journey(engine, party, target=(0, 200))
+        quests.steer(engine.session, quests.JOURNEY_PACE * 10, engine.rng)
+        assert all(p.x == 190 for p in party)
+
+    def test_the_tick_walks_questers_instead_of_drifting_them(self, engine):
+        party = make(engine, 4, level=45)
+        for p in party:
+            p.x, p.y = 200, 200
+        self._journey(engine, party, target=(0, 200))
+        engine.tick(quests.JOURNEY_PACE * 10)
+        assert all((p.x, p.y) == (190, 200) for p in party)
+
+    def test_a_journey_out_of_time_is_abandoned_without_blame(self, engine):
+        party = make(engine, 4, level=45)
+        for p in party:
+            p.next_ttl = 1000
+        quest = self._journey(engine, party)
+        quest.expires = utcnow() - timedelta(seconds=1)
+        engine.session.commit()
+        out = quests.advance(engine.session, quest, engine.rng)
+        assert out and "abandoned" in out[0].message
+        assert quests.active_quest(engine.session) is None
+        assert all(p.next_ttl == 1000 for p in party)
+
+    def test_a_journey_names_its_road(self, engine):
+        party = make(engine, 4, level=45)
+        for seed in range(20):
+            engine.rng.seed(seed)
+            out = quests.start(engine.session, party, engine.rng, 500, 500)
+            quest = quests.active_quest(engine.session)
+            if quest.kind == 2:
+                assert "Their road runs to [" in out.message
+                return
+            engine.session.delete(quest)
+            engine.session.commit()
+        pytest.fail("no journey in 20 seeds")
 
     def test_a_non_quester_speaking_does_not_fail_it(self, engine):
         party = make(engine, 4, level=45)

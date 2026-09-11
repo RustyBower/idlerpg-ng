@@ -88,6 +88,7 @@ class TestRegistrationFlow:
 
 class TestPenaltiesAndPresence:
     def _registered(self, adapter):
+        feed(adapter, ":rusty!u@h JOIN #idlerpg")
         feed(adapter, ":rusty!u@h PRIVMSG idlerpg :REGISTER rusty hunter2 Sysadmin")
         return adapter.engine.find_player("rusty")
 
@@ -220,6 +221,8 @@ class TestLoginReachesIRC:
         e = adapter.engine
         p = e.register(name, "pw", "Sysadmin", Platform.DISCORD, "999")
         e.set_presence(Platform.DISCORD, "999", Presence.OFFLINE)
+        for nick in ("rusty", "other", "old"):  # all sitting in the channel
+            feed(adapter, f":{nick}!u@h JOIN #idlerpg")
         return p
 
     def _irc(self, p):
@@ -410,3 +413,94 @@ class TestAlignCommand:
     def test_help_mentions_it(self, adapter):
         feed(adapter, ":rusty!u@h PRIVMSG idlerpg :HELP")
         assert "ALIGN" in sent(adapter)
+
+
+class TestYouEarnOnlyInTheChannel:
+    """The game is sitting in the channel. Logged in from anywhere else, a
+    character is logged in but earns nothing until the nick joins."""
+
+    def test_logging_in_from_outside_earns_nothing_until_you_join(self, adapter):
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :REGISTER rusty pw Sysadmin")
+        p = adapter.engine.find_player("rusty")
+        assert not p.is_idling
+        assert "Join #idlerpg to start idling" in sent(adapter)
+        feed(adapter, ":rusty!u@h JOIN #idlerpg")
+        assert p.is_idling
+
+    def test_the_names_list_counts_as_being_here(self, adapter):
+        feed(adapter, ":server 353 idlerpg = #idlerpg :@op +rusty other")
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :REGISTER rusty pw Sysadmin")
+        assert adapter.engine.find_player("rusty").is_idling
+        assert "Join #idlerpg" not in sent(adapter)
+
+    def test_a_second_login_ends_the_first(self, adapter):
+        feed(adapter, ":rusty!u@h JOIN #idlerpg")
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :REGISTER first pw Sysadmin")
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :REGISTER second pw Sysadmin")
+        assert adapter.engine.find_player("second").is_idling
+        assert not adapter.engine.find_player("first").is_idling
+
+    def test_one_of_two_nicks_leaving_keeps_the_character_earning(self, adapter):
+        feed(adapter, ":a!u@h JOIN #idlerpg")
+        feed(adapter, ":b!u@h JOIN #idlerpg")
+        feed(adapter, ":a!u@h PRIVMSG idlerpg :REGISTER rusty pw Sysadmin")
+        feed(adapter, ":b!u@h PRIVMSG idlerpg :LOGIN rusty pw")
+        p = adapter.engine.find_player("rusty")
+        feed(adapter, ":a!u@h QUIT :Quit: bye")
+        assert p.is_idling
+        feed(adapter, ":b!u@h QUIT :Quit: bye")
+        assert not p.is_idling
+
+    def test_parting_another_channel_is_ignored(self, adapter):
+        feed(adapter, ":rusty!u@h JOIN #idlerpg")
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :REGISTER rusty pw Sysadmin")
+        p = adapter.engine.find_player("rusty")
+        before = p.next_ttl
+        feed(adapter, ":rusty!u@h PART #elsewhere")
+        assert p.is_idling
+        assert p.next_ttl == before
+
+
+class TestNickInUse:
+    """Usually our own connection from before a restart, not yet timed out.
+    Without handling, the new connection never finishes registering."""
+
+    def _stand_in(self, adapter, password=None):
+        adapter.cfg.nickserv_password = password
+        feed(adapter, ":server 433 * idlerpg :Nickname is already in use")
+        feed(adapter, ":server 001 idlerpg_ :Welcome")
+
+    def test_a_taken_nick_gets_a_stand_in(self, adapter):
+        feed(adapter, ":server 433 * idlerpg :Nickname is already in use")
+        assert "NICK idlerpg_" in sent(adapter)
+
+    def test_services_are_asked_to_remove_the_ghost(self, adapter):
+        self._stand_in(adapter, "s3cret")
+        assert "PRIVMSG NickServ :GHOST idlerpg s3cret" in sent(adapter)
+        assert "IDENTIFY" not in sent(adapter)
+
+    def test_the_nick_is_taken_back_and_identified(self, adapter):
+        self._stand_in(adapter, "s3cret")
+        adapter.writer.lines.clear()
+        feed(adapter, ":NickServ!s@services NOTICE idlerpg_ :Ghost with your nick has been killed.")
+        assert "NICK idlerpg" in adapter.writer.lines
+        feed(adapter, ":idlerpg_!bot@bot.host NICK :idlerpg")
+        assert adapter.nick == "idlerpg"
+        assert "PRIVMSG NickServ :IDENTIFY s3cret" in sent(adapter)
+
+    def test_without_services_the_ghost_quitting_frees_it(self, adapter):
+        self._stand_in(adapter)
+        adapter.writer.lines.clear()
+        feed(adapter, ":idlerpg!old@bot.host QUIT :Ping timeout: 240 seconds")
+        assert "NICK idlerpg" in adapter.writer.lines
+
+    def test_commands_reach_the_stand_in(self, adapter):
+        self._stand_in(adapter)
+        adapter.writer.lines.clear()
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg_ :HELP")
+        assert "REGISTER" in sent(adapter)
+
+    def test_joining_as_the_stand_in_still_asks_who(self, adapter):
+        self._stand_in(adapter)
+        feed(adapter, ":idlerpg_!bot@bot.host JOIN #idlerpg")
+        assert "WHO #idlerpg" in sent(adapter)

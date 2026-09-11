@@ -1,31 +1,46 @@
 """Quests.
 
-Four players above level 40 are chosen by the gods. A timed quest just needs
-them to stay put; a journey sends them to two waypoints in turn. Finishing one
-removes a quarter of everyone's remaining burden. Talking, parting or quitting
-fails it for the whole party, and the realm pays for it - which is the point:
-it makes idling a shared discipline rather than a solitary one.
+Four players at level 40 or above are chosen by the gods. A timed quest needs
+them to stay put for 12 to 24 hours; a journey walks them to two waypoints in
+turn. Finishing one removes a quarter of each quester's remaining time.
 
-Quest texts are original: the fork this is descended from ships an events file
-with no Q lines in it.
+Talking, parting or quitting fails a quest, and the party pays for it: every
+quester takes the original's fifteen-step quest penalty, and the gods offer no
+quest for twelve hours. The original set back everyone online instead. Here the
+stake is the party's own, since a quest is a vow its members made, not their
+neighbours.
+
+The original walks a journey's party a step a second, so its journeys end in
+minutes while vigils last a day. Here the party walks a step every half-minute,
+which makes a journey a few hours - something the realm can watch on the map -
+and gives up after a day, blaming no one.
+
+Quest texts are written here for now; the original's events.txt lines come
+with the flavour-text work.
 """
 
 from __future__ import annotations
 
 import random
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from . import events
 from .events import Outcome
-from .models import Player, Quest, QuestParticipant, utcnow
+from .models import PenaltyRecord, Player, Quest, QuestParticipant, Setting, utcnow
+from .rules import Curve, Penalty, penalty_seconds
 
 MIN_LEVEL = 40
 PARTY_SIZE = 4
-COOLDOWN = timedelta(hours=6)
-COMPLETION_BONUS = 0.75      # a quarter of the remaining burden is removed
-FAILURE_PENALTY = 0.15       # and failing costs the realm
+COOLDOWN = timedelta(hours=6)          # mean wait between attempts to start one
+REST = timedelta(hours=6)              # after a quest ends, as the original
+FAILURE_REST = timedelta(hours=12)     # after one fails, as the original
+JOURNEY_TIMEOUT = timedelta(hours=24)
+JOURNEY_PACE = 30                      # seconds per step on a journey
+COMPLETION_BONUS = 0.75                # a quarter of the remaining burden is removed
+REST_KEY = "quest_rest_until"
 
 TIMED_QUESTS = [
     "sit vigil at the Fountain of Unspoken Things until the moon sets",
@@ -46,6 +61,29 @@ def _aware(value):
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
+def _names(party: list[Player]) -> str:
+    return ", ".join(p.name for p in party[:-1]) + f" and {party[-1].name}"
+
+
+def _target(quest: Quest) -> tuple[int, int]:
+    return (quest.x1, quest.y1) if quest.stage == 1 else (quest.x2, quest.y2)
+
+
+def _rest(session: Session, length: timedelta) -> None:
+    """No quest is offered until ``length`` from now."""
+    until = (utcnow() + length).isoformat()
+    row = session.get(Setting, REST_KEY)
+    if row is None:
+        session.add(Setting(key=REST_KEY, value=until))
+    else:
+        row.value = until
+
+
+def resting(session: Session) -> bool:
+    row = session.get(Setting, REST_KEY)
+    return row is not None and utcnow() < _aware(datetime.fromisoformat(row.value))
+
+
 def active_quest(session: Session) -> Quest | None:
     return session.scalar(
         select(Quest).options(
@@ -60,7 +98,10 @@ def eligible(players: list[Player]) -> list[Player]:
 
 def start(session: Session, players: list[Player], rng: random.Random,
           map_x: int, map_y: int) -> Outcome | None:
-    """Begin a quest if enough senior players are around."""
+    """Begin a quest if enough senior players are around and the gods are
+    not resting."""
+    if resting(session):
+        return None
     candidates = eligible(players)
     if len(candidates) < PARTY_SIZE:
         return None
@@ -72,22 +113,45 @@ def start(session: Session, players: list[Player], rng: random.Random,
             # The original waits 12 to 24 hours.
             expires=utcnow() + timedelta(seconds=43200 + rng.randrange(43201)),
         )
+        route = ""
     else:
         quest = Quest(
             text=rng.choice(JOURNEY_QUESTS), kind=2, stage=1,
             x1=rng.randrange(map_x), y1=rng.randrange(map_y),
             x2=rng.randrange(map_x), y2=rng.randrange(map_y),
+            expires=utcnow() + JOURNEY_TIMEOUT,
         )
+        route = (f" Their road runs to [{quest.x1},{quest.y1}], then "
+                 f"[{quest.x2},{quest.y2}].")
     quest.participants = [QuestParticipant(player_id=p.id) for p in party]
     session.add(quest)
     session.commit()
 
-    names = ", ".join(p.name for p in party[:-1]) + f" and {party[-1].name}"
     return Outcome(
-        f"{names} have been chosen by the gods to {quest.text}. "
+        f"{_names(party)} have been chosen by the gods to {quest.text}.{route} "
         f"Participants must remain silent.",
         kind="quest",
     )
+
+
+def steer(session: Session, elapsed: float, rng: random.Random) -> set[int]:
+    """Walk a journey's party toward its waypoint; returns who was walked.
+
+    A step every JOURNEY_PACE seconds, with the remainder of a tick rolled as
+    a chance, so the pace holds whatever the tick length. Everyone else keeps
+    drifting at random.
+    """
+    quest = active_quest(session)
+    if quest is None or quest.kind != 2:
+        return set()
+    whole, part = divmod(elapsed, JOURNEY_PACE)
+    steps = int(whole) + (1 if rng.random() < part / JOURNEY_PACE else 0)
+    x, y = _target(quest)
+    walked = set()
+    for member in quest.participants:
+        events.step_toward(member.player, x, y, steps)
+        walked.add(member.player_id)
+    return walked
 
 
 def advance(session: Session, quest: Quest, rng: random.Random) -> list[Outcome]:
@@ -98,21 +162,30 @@ def advance(session: Session, quest: Quest, rng: random.Random) -> list[Outcome]
     if not party:
         return []
 
+    expired = quest.expires is not None and utcnow() >= _aware(quest.expires)
     if quest.kind == 1:
-        if quest.expires and utcnow() >= _aware(quest.expires):
-            return _complete(session, quest, party)
-        return []
+        return _complete(session, quest, party) if expired else []
+
+    if expired:
+        session.delete(quest)
+        _rest(session, REST)
+        session.commit()
+        return [Outcome(
+            f"{_names(party)} did not reach the end of their road in time. "
+            f"The quest is abandoned, and no one is blamed.",
+            kind="quest",
+        )]
 
     # A journey: everyone must stand on the current waypoint together.
-    target = (quest.x1, quest.y1) if quest.stage == 1 else (quest.x2, quest.y2)
+    target = _target(quest)
     if not all((p.x, p.y) == target for p in party):
         return []
     if quest.stage == 1:
         quest.stage = 2
         session.commit()
         return [Outcome(
-            f"The party has reached the first waypoint at {target}. "
-            f"Their journey continues.",
+            f"The party has reached the first waypoint at [{target[0]},{target[1]}]. "
+            f"Their journey continues to [{quest.x2},{quest.y2}].",
             kind="quest",
         )]
     return _complete(session, quest, party)
@@ -121,31 +194,41 @@ def advance(session: Session, quest: Quest, rng: random.Random) -> list[Outcome]
 def _complete(session: Session, quest: Quest, party: list[Player]) -> list[Outcome]:
     for p in party:
         p.next_ttl = int(p.next_ttl * COMPLETION_BONUS)
-    names = ", ".join(p.name for p in party[:-1]) + f" and {party[-1].name}"
     session.delete(quest)
+    _rest(session, REST)
     session.commit()
     return [Outcome(
-        f"{names} have blessed the realm by completing their quest! "
+        f"{_names(party)} have blessed the realm by completing their quest! "
         f"25% of their burden is eliminated.",
         kind="quest",
     )]
 
 
-def fail(session: Session, player: Player) -> list[Outcome]:
-    """Called when a quester misbehaves. Everyone pays, not just them."""
+def fail(session: Session, player: Player,
+         curve: Curve | None = None) -> list[Outcome]:
+    """Called when a quester misbehaves. The whole party pays; nobody else."""
     quest = active_quest(session)
     if quest is None:
         return []
     if not any(p.player_id == player.id for p in quest.participants):
         return []
 
-    everyone = session.scalars(select(Player)).all()
-    for other in everyone:
-        other.next_ttl = int(other.next_ttl * (1 + FAILURE_PENALTY))
+    party = [p.player for p in quest.participants]
+    costs = []
+    for member in party:
+        seconds = penalty_seconds(Penalty.QUEST, member.level, curve)
+        member.next_ttl += seconds
+        session.add(PenaltyRecord(
+            player_id=member.id, kind=Penalty.QUEST.value, seconds=seconds,
+            platform=None,
+        ))
+        costs.append(f"{member.name} +{seconds}s")
     session.delete(quest)
+    _rest(session, FAILURE_REST)
     session.commit()
     return [Outcome(
         f"{player.name}'s prudence and self-regard has brought the wrath of "
-        f"the gods upon the realm. All are slowed by 15%.",
+        f"the gods upon the quest. The party is set back fifteen steps each "
+        f"({', '.join(costs)}), and the gods will offer no quest for 12 hours.",
         kind="quest",
     )]

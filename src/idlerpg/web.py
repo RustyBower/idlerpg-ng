@@ -21,6 +21,7 @@ from urllib.parse import unquote, quote
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from .engine import MAP_X, MAP_Y
 from .models import (
     EventLog, PenaltyRecord, Player, Quest, QuestParticipant, upgrade,
 )
@@ -30,10 +31,11 @@ PORT = int(os.environ.get("PORT", "8080"))
 NETWORK = os.environ.get("IRPG_NETWORK", "129irc")
 CHANNEL = os.environ.get("IRPG_CHANNEL", "#idlerpg")
 BOT_NICK = os.environ.get("IRPG_BOT", "idlerpg")
-MAP_X = int(os.environ.get("IRPG_MAPX", "500"))
-MAP_Y = int(os.environ.get("IRPG_MAPY", "500"))
-RP_BASE = int(os.environ.get("IRPG_RPBASE", "600"))
-RP_STEP = float(os.environ.get("IRPG_RPSTEP", "1.12"))
+# The realm's size and curve come from the bot's own settings, so the site
+# cannot draw a different map or level table from the one the game runs. The
+# IRPG_ names are the ones the site used to read on its own; they still work.
+RP_BASE = int(os.environ.get("RP_BASE") or os.environ.get("IRPG_RPBASE") or 600)
+RP_STEP = float(os.environ.get("RP_STEP") or os.environ.get("IRPG_RPSTEP") or 1.12)
 
 _engine = None
 
@@ -571,8 +573,8 @@ whole realm pays.</p></div>"""
 <table><thead><tr><th>Player</th><th class="num">Level</th><th class="num">Position</th></tr></thead>
 <tbody>{rows}</tbody></table>
 {dest_block}
-<p class="muted">If a quester talks, parts or quits, the quest fails and everyone
-in the realm is set back.</p>"""
+<p class="muted">If a quester talks, parts or quits, the quest fails: every quester
+is set back, and the gods offer no quest for 12 hours.</p>"""
     return layout("Quest", body, "/quest")
 
 
@@ -658,8 +660,9 @@ def page_game():
 <p class="muted">Connect to <code>irc.129irc.com</code> on port <code>6697</code> with
 TLS and join <code>{E(CHANNEL)}</code>. The network blocks private messages from brand
 new connections, so wait about two minutes after connecting before you register.
-If the bot restarts it logs you back in by itself, as long as you are still connected
-from the same address - a bouncer keeps that stable.</p>
+You earn only while you are in {E(CHANNEL)}. If the bot restarts it logs you back in
+by itself, as long as you are still connected from the same address - a bouncer keeps
+that stable.</p>
 
 <h2>Getting started on Discord</h2>
 <table>
@@ -699,7 +702,7 @@ scale with your level, so the higher you climb the more a slip costs.</p>
   <tr><td>Logging out</td><td>20&times;</td></tr>
   <tr><td>Parting the channel</td><td>200&times;</td></tr>
   <tr><td>Being kicked</td><td>250&times;</td></tr>
-  <tr><td>Failing a quest</td><td>15&times;, for everyone</td></tr>
+  <tr><td>Failing a quest</td><td>15&times;, for each quester</td></tr>
 </tbody></table>
 
 <h2>The climb</h2>
@@ -720,9 +723,11 @@ together and both get 5-12% off their time to the next level.
 <span class="evil">Evil</span> ones land fewer, and now and then either steal a better
 item from a good player or are forsaken by their god and have 1-5% added to their
 clock. Neutral sits in between and is left out of both.</p>
-<p class="muted">Quests send a party across the {MAP_X}&times;{MAP_Y} realm. Finish one
-and everyone involved gains time; if a quester talks, parts or quits, it fails and
-the whole realm is set back.</p>"""
+<p class="muted">Quests choose four players at level 40 or above. Some are vigils of 12 to
+24 hours; others walk the party to two waypoints across the {MAP_X}&times;{MAP_Y}
+realm, a step every half-minute. Finish one and each quester loses a quarter of their
+remaining time. If a quester talks, parts or quits, it fails: the party is set back
+and the gods offer no quest for 12 hours.</p>"""
     return layout("How to play", body, "/game")
 
 
