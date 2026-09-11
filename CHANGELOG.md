@@ -3,7 +3,7 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.19.0 - unreleased
+## 0.19.0 - 2026-09-11
 
 - **Seasons.** In Hallowtide (October), Midwinter (15 December to 6 January)
   and Springtide (20 March to 20 April) a third of the realm's calamities,
