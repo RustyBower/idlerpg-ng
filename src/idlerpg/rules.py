@@ -76,7 +76,7 @@ class Curve:
 
     base_seconds: int = 600
     step: float = 1.12
-    penalty_step: float = 1.14
+    penalty_step: float = 1.10  # below step, as the original's 1.14 is below 1.16
     cap_level: int = DEFAULT_CAP_LEVEL
     penalty_limit_seconds: int = 604800  # limitpen: one week
     post_cap_step: float | None = DEFAULT_POST_CAP_STEP

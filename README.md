@@ -209,6 +209,13 @@ wall toward the ordinary 1.12 step, all the way at five ranks: 70 then comes
 numbers too, so the reasoning stays visible rather than becoming an unexplained
 constant.
 
+Penalties grow at **1.10** a level. Upstream's 1.14 sits below its 1.16
+curve; kept beside a 1.12 curve it outgrew the levels, and in simulation a
+typical player spent about half of every day paying penalties off. Across 40
+seeded 18-player realms idling 60 days from level 30, 1.10 lifts a typical
+player's pace from 0.58 to 0.98 and narrows the gap between the best and worst
+alignment from 7% to 2%, within luck; for chatty players, from 21% to 6%.
+
 Event odds are expressed as rates - once per N days per online player - and
 scaled by real elapsed time. The original rolls them once per tick, which ties
 its probabilities to how often it happens to wake up; here changing the tick
@@ -236,7 +243,7 @@ length does not change the game.
 | `TOPIC_SECONDS` | `36000` | Discord throttles channel edits hard |
 | `SITE_URL` | `https://idlerpg.129irc.com/` | leads the channel topic |
 | `RP_BASE` / `RP_STEP` | `600` / `1.12` | the level curve; the website reads these too |
-| `RP_PENALTY_STEP` | `1.14` | how fast penalties grow with level |
+| `RP_PENALTY_STEP` | `1.10` | how fast penalties grow with level |
 | `RP_POST_CAP_STEP` | `1.25` | how much more each level past 60 costs than the last; `linear` for the original's day a level |
 | `MAP_X` / `MAP_Y` | `500` / `500` | the realm's size; the website reads these too |
 | `EVENTS_FILE` | | a classic `events.txt` whose lines join the realm's own |

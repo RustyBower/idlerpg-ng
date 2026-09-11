@@ -103,7 +103,7 @@ class Config:
         default_factory=lambda: Curve(
             base_seconds=int(os.environ.get("RP_BASE", "600")),
             step=float(os.environ.get("RP_STEP", "1.12")),
-            penalty_step=float(os.environ.get("RP_PENALTY_STEP", "1.14")),
+            penalty_step=float(os.environ.get("RP_PENALTY_STEP", "1.10")),
             post_cap_step=post_cap_step(),
         )
     )

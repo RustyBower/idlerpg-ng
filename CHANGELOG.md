@@ -3,6 +3,30 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.16.0 - unreleased
+
+- **Prestige.** From level 60, `PRESTIGE` shows what starting over would do
+  and `PRESTIGE confirm` does it: back to level 0 with fresh items, keeping
+  name, alignment and perks, for a ★ on the site - where prestige now ranks
+  first - and points: two for reaching 60, one more for every five levels past
+  it. `PERKS` lists what they buy and `PERK <name>` buys a rank: swiftness,
+  composure, fortune, warding, heirloom, stride and champion, and endurance,
+  which opens only after ten ranks elsewhere.
+- **Level 60 is a wall.** Past 60 each level costs a quarter more than the
+  last, where it used to add a day: 70 is now about seven months past 60, and
+  80 six years. Endurance eases the wall back toward the ordinary curve.
+  Penalties past 60 grow as before.
+- **Smaller penalties at high levels.** They now grow 10% a level, not 14%,
+  which outran the levels themselves. A typical player keeps about 40% more of
+  each day, and no alignment gains much more from it than another.
+- The website's climb table follows the realm's actual curve.
+- Fixed: the help said good lands the most critical strikes; evil does.
+- Fixed: the website logged a traceback whenever a visitor hung up early.
+- The simulator runs many seeded realms at once, reports how sure it is, and
+  models kinds of player (`--profile quiet|average|chatty`) and curves
+  (`--rp-step`, `--penalty-step`, `--post-cap-step`).
+- *Operators:* `RP_POST_CAP_STEP` (default `1.25`; `linear` for the original).
+
 ## 0.15.0 - 2026-09-10
 
 - **Admin commands**, by `/msg` on IRC and by DM on Discord: `INFO`, `PAUSE`,

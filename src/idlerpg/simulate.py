@@ -137,6 +137,7 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
     habits = habits or Habits()
     curve = curve or Curve()
     rng = random.Random(seed)             # the players' habits
+    kit = random.Random(seed + 2)         # the items found on the way up
     db = create_engine("sqlite://")
     Base.metadata.create_all(db)
     session = Session(db)
@@ -153,6 +154,12 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
             seen[code] += 1
             p = realm.register(name, "pw", alignment.title(), Platform.IRC, name)
             realm.set_alignment(p, alignment)
+            # Start as a player who climbed here would: with a find at every
+            # level so far. Empty-handed, a realm starting high fights with
+            # nothing, and battles - a share of the clock each - swamp it.
+            for level in range(1, start_level + 1):
+                p.level = level
+                events.find_item(p, kit)
             p.level, p.next_ttl = start_level, int(ttl(start_level, curve))
             players.append((p, alignment))
         session.commit()
