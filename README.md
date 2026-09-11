@@ -103,6 +103,11 @@ each level costs a quarter more than the last: 65 is seven weeks on, 70 half a
 year, 80 six years. Waiting earns more points at a real price, and 60 is where
 most characters will want to begin again.
 
+**The map.** Characters drift at random through the middle 80% of the map,
+the heartland, and wander back in from the wilds at its rim. The realm's
+places - and so its journeys - all lie inside the heartland. The map no
+longer wraps from one edge to the other.
+
 **NPCs** make up the numbers in a small realm, so quests, team battles and
 fights have enough people. While fewer than `NPC_REALM` characters have been
 about in the last week, NPCs join - `NPC_MAX` at most - and they set off for

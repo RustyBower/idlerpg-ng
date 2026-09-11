@@ -14,7 +14,7 @@ import math
 import random
 from dataclasses import dataclass
 
-from .lore import LORE
+from .lore import LORE, heartland
 from .rules import ttl
 from .text import duration
 
@@ -294,12 +294,37 @@ def _swap_item(winner, loser, rng: random.Random) -> list[Outcome]:
     )]
 
 
+# Out in the wilds - where an admin's MOVE or an old position can leave
+# someone - a drifting step heads back toward the heartland this often.
+HOMEWARD = 0.75
+
+
+def spawn_point(map_x: int, map_y: int, rng: random.Random) -> tuple[int, int]:
+    """Somewhere in the heartland, for a new character."""
+    return rng.randint(*heartland(map_x)), rng.randint(*heartland(map_y))
+
+
 def move_player(player, map_x: int, map_y: int, rng: random.Random) -> None:
-    """Drift one step in a random direction, wrapping at the edges."""
+    """Drift one step: at random in the heartland, turning back at its edge,
+    and mostly homeward from the wilds. The map used to wrap, which strung
+    characters along its rim and flung them from one side to the other."""
     if rng.randrange(2):
-        player.x = (player.x + rng.choice((-1, 1))) % map_x
+        player.x = _drift(player.x, map_x, rng)
     else:
-        player.y = (player.y + rng.choice((-1, 1))) % map_y
+        player.y = _drift(player.y, map_y, rng)
+
+
+def _drift(at: int, size: int, rng: random.Random) -> int:
+    low, high = heartland(size)
+    if at < low:
+        step = 1 if rng.random() < HOMEWARD else -1
+    elif at > high:
+        step = -1 if rng.random() < HOMEWARD else 1
+    else:
+        step = rng.choice((-1, 1))
+        if not low <= at + step <= high:
+            step = -step
+    return min(size - 1, max(0, at + step))
 
 
 def step_toward(player, x: int, y: int, steps: int = 1) -> None:

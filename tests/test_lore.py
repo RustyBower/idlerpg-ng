@@ -59,10 +59,16 @@ class TestPlaces:
             assert by_spot[journey.first] in journey.text
             assert by_spot[journey.second] in journey.text
 
-    def test_positions_scale_to_the_realm(self):
-        assert place((250, 490), 500, 500) == (250, 490)
-        assert place((250, 490), 1000, 250) == (500, 245)
-        assert place((499, 499), 100, 100) == (99, 99)
+    def test_positions_scale_into_the_heartland(self):
+        assert place((0, 0), 500, 500) == (50, 50)
+        assert place((499, 499), 500, 500) == (449, 449)
+        assert place((0, 499), 1000, 250) == (100, 224)
+        assert place((250, 250), 100, 100) == (49, 49)
+
+    def test_every_place_is_off_the_rim(self):
+        for spot in PLACES:
+            x, y = place(spot.at, 500, 500)
+            assert 50 <= x <= 449 and 50 <= y <= 449
 
 
 class TestEventsFile:

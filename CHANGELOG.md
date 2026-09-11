@@ -3,6 +3,14 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.16.1 - unreleased
+
+- **The map has a heartland.** Characters drift through the middle 80% of the
+  map and wander back in from the wilds at its rim, instead of vanishing off
+  one edge and reappearing at the other. New characters start inside it, and
+  the realm's places - so its journeys - now lie inside it too.
+- The website has a changelog: **what's new**, linked from every page.
+
 ## 0.16.0 - 2026-09-11
 
 - **NPCs** make up the numbers in a small realm: they join while it is quiet

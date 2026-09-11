@@ -145,12 +145,35 @@ class TestBattle:
 
 
 class TestMap:
-    def test_movement_wraps_and_stays_in_bounds(self, engine):
+    def test_movement_stays_on_the_map(self, engine):
         p = player(engine)
         p.x, p.y = 0, 0
         for _ in range(500):
             events.move_player(p, 500, 500, engine.rng)
             assert 0 <= p.x < 500 and 0 <= p.y < 500
+
+    def test_the_wilds_send_you_home(self, engine):
+        p = player(engine)
+        p.x, p.y = 0, 499                       # the far corner, which used to wrap
+        for _ in range(2000):
+            events.move_player(p, 500, 500, engine.rng)
+        low, high = events.heartland(500)
+        assert low <= p.x <= high and low <= p.y <= high
+
+    def test_the_heartland_keeps_you(self, engine):
+        p = player(engine)
+        low, high = events.heartland(500)
+        p.x, p.y = low, high                    # on its very edge
+        for _ in range(20000):
+            events.move_player(p, 500, 500, engine.rng)
+            assert low <= p.x <= high and low <= p.y <= high
+
+    def test_newcomers_start_in_the_heartland(self):
+        rng = random.Random(4)
+        low, high = events.heartland(500)
+        for _ in range(500):
+            x, y = events.spawn_point(500, 500, rng)
+            assert low <= x <= high and low <= y <= high
 
 
 class TestRates:

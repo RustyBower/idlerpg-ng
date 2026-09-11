@@ -285,8 +285,24 @@ def load(path: str | None = None) -> Lore:
 LORE = load()
 
 
+# The outer tenth of the map on every side is the wilds; the rest - the middle
+# 80% on each axis - is the heartland, where the realm's life goes on. Its
+# places lie inside it, and characters drift back to it: see move_player.
+WILDS = 0.10
+
+
+def heartland(size: int) -> tuple[int, int]:
+    """The lowest and highest coordinate of the heartland on one axis."""
+    margin = int(size * WILDS)
+    return margin, size - 1 - margin
+
+
 def place(point: tuple[int, int], map_x: int, map_y: int) -> tuple[int, int]:
-    """A lore position on this realm's map, scaled and kept inside it."""
+    """A lore position on this realm's map: the lore's whole map scaled into
+    the heartland, so journeys lead through the middle of the realm."""
+    def scale(v: int, size: int) -> int:
+        low, high = heartland(size)
+        v = min(LORE_MAP - 1, max(0, v))
+        return low + v * (high - low) // (LORE_MAP - 1)
     x, y = point
-    return (min(map_x - 1, max(0, x * map_x // LORE_MAP)),
-            min(map_y - 1, max(0, y * map_y // LORE_MAP)))
+    return scale(x, map_x), scale(y, map_y)

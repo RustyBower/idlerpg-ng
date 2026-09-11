@@ -13,9 +13,11 @@ import html
 import json
 import os
 import random
+import re
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import unquote, quote
 
 from sqlalchemy import create_engine, func, select
@@ -24,6 +26,7 @@ from sqlalchemy.orm import Session, selectinload
 from . import __version__
 from .config import post_cap_step
 from .engine import MAP_X, MAP_Y
+from .lore import heartland
 from .rules import Curve, seconds_to_reach, ttl
 from .text import duration, safe
 from .models import (
@@ -255,6 +258,7 @@ padding:.1rem .42rem;border-radius:4px;margin-right:.3rem;border:1px solid var(-
 .plat.discord.live{background:#5865f21a;color:#5865f2;border-color:#5865f2}
 @media (prefers-color-scheme:dark){.plat.discord.live{color:#9aa6ff;border-color:#5865f2}}
 .plat.npc{font-style:italic}
+.heartland{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:10 8;opacity:.45}
 .plat.idle{opacity:.45}
 .plat.none{opacity:.4;border:none}
 /* Legend swatches use the pin fills directly, so the key cannot drift from
@@ -283,10 +287,12 @@ def layout(title, body, current="/", refresh=60):
         f'<a href="{p}" class="{"on" if p == current else ""}">{E(label)}</a>'
         for p, label in NAV
     )
+    # Live pages refresh themselves; refresh=0 means a page that never needs to.
+    meta_refresh = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ""
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="{refresh}">
+{meta_refresh}
 <title>{E(title)} &middot; IdleRPG</title>
 <style>{STYLE}</style>
 </head><body><div class="wrap">
@@ -301,6 +307,7 @@ def layout(title, body, current="/", refresh=60):
   &middot; <a href="/api/players.json">players.json</a>
   &middot; <a href="/api/quest.json">quest.json</a>
   &middot; <a href="https://129irc.com">129irc.com</a>
+  &middot; <a href="/changes">what&#39;s new</a>
   &middot; <a href="https://github.com/RustyBower/idlerpg-ng">idlerpg-ng {E(__version__)}</a>
 </footer>
 </div></body></html>"""
@@ -508,6 +515,12 @@ def page_map(players, quest):
         f'<text x="{S*0.25:.0f}" y="{S-18:.0f}" class="quadlabel">SOUTHWEST</text>'
     )
 
+    # The heartland, where characters drift; outside it are the wilds.
+    (hx0, hx1), (hy0, hy1) = heartland(MAP_X), heartland(MAP_Y)
+    home = (f'<rect x="{sx(hx0):.1f}" y="{sy(hy0):.1f}" '
+            f'width="{sx(hx1 + 1) - sx(hx0):.1f}" height="{sy(hy1 + 1) - sy(hy0):.1f}" '
+            f'class="heartland"/>')
+
     goals = ""
     if quest and quest.get("destinations"):
         pts = [(sx(d["x"]), sy(d["y"])) for d in quest["destinations"]]
@@ -544,14 +557,15 @@ def page_map(players, quest):
      aria-label="Map of the realm showing where each player stands">
   <rect x="0" y="0" width="{S:.0f}" height="{S:.0f}" class="ground"/>
   {terrain_svg()}
-  {grid}{quads}{goals}{"".join(marks)}
+  {grid}{quads}{home}{goals}{"".join(marks)}
 </svg>
 <p class="muted">
   <span class="key"><i class="k-irc"></i>IRC</span>
   <span class="key"><i class="k-discord"></i>Discord</span>
   <span class="key"><i class="k-both"></i>both</span>
   &nbsp; Filled pins are online; faded ones are not. {note}
-  The realm is {MAP_X}&times;{MAP_Y} and players drift a step at a time while they idle.
+  The realm is {MAP_X}&times;{MAP_Y} and players drift a step at a time while they idle,
+  inside the dashed heartland; anyone out in the wilds beyond it wanders back in.
 </p>"""
     return layout("World map", body, "/map")
 
@@ -751,6 +765,76 @@ and the gods offer no quest for 12 hours.</p>"""
     return layout("How to play", body, "/game")
 
 
+def changelog_text() -> str:
+    """CHANGELOG.md: beside the working directory in the image, or at the top
+    of a checkout."""
+    for path in (Path.cwd() / "CHANGELOG.md",
+                 Path(__file__).resolve().parents[2] / "CHANGELOG.md"):
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+    return ""
+
+
+def _inline(text: str) -> str:
+    text = E(text)
+    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+    return re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
+
+
+def render_changelog(text: str) -> str:
+    """The changelog's own small dialect of Markdown as HTML: version headings,
+    bullets nested one deep, paragraphs, **bold**, *italic* and `code`.
+    Everything is escaped first, so the file cannot inject markup."""
+    blocks: list[list] = []
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        stripped = line.lstrip()
+        if not stripped:
+            blocks.append(["gap"])
+        elif line.startswith("# "):
+            continue                              # the page has its own title
+        elif line.startswith("## "):
+            blocks.append(["h", line[3:]])
+        elif stripped.startswith("- "):
+            blocks.append(["li", 1 if len(line) - len(stripped) >= 2 else 0, stripped[2:]])
+        elif blocks and blocks[-1][0] in ("li", "p"):
+            blocks[-1][-1] += " " + stripped      # a wrapped line
+        else:
+            blocks.append(["p", stripped])
+
+    out, depth = [], 0
+    for block in blocks:
+        if block[0] == "gap":
+            continue
+        if block[0] == "li":
+            want = block[1] + 1
+            while depth < want:
+                out.append("<ul>")
+                depth += 1
+            while depth > want:
+                out.append("</ul>")
+                depth -= 1
+            out.append(f"<li>{_inline(block[2])}")   # </li> is implied
+            continue
+        while depth:
+            out.append("</ul>")
+            depth -= 1
+        tag = "h2" if block[0] == "h" else "p"
+        out.append(f"<{tag}>{_inline(block[1])}</{tag}>")
+    out.extend("</ul>" for _ in range(depth))
+    return "\n".join(out)
+
+
+def page_changes():
+    text = changelog_text()
+    body = (f'<div class="changes">{render_changelog(text)}</div>' if text else
+            '<div class="empty"><p>This build has no changelog.</p></div>')
+    return layout("What's new", body, "/changes", refresh=0)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "idlerpg-site"
 
@@ -772,6 +856,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(page_quest(load_quest(), load_players()))
         elif path == "/game":
             self._send(page_game())
+        elif path == "/changes":
+            self._send(page_changes())
         elif path.startswith("/player/"):
             name = unquote(path[len("/player/"):]).strip("/")
             match = next(

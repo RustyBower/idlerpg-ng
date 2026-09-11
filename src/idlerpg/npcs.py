@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from . import quests
-from .events import SLOTS, Outcome
+from .events import SLOTS, Outcome, spawn_point
 from .models import Alignment, Ethos, Item, Player, utcnow
 from .rules import Penalty, ttl
 
@@ -160,6 +160,7 @@ def _create(engine, taken: set[str]) -> Player | None:
     if not free:
         return None
     rng = engine.rng
+    x, y = spawn_point(events_map_x(), events_map_y(), rng)
     npc = Player(
         name=rng.choice(free),
         password_hash=UNUSABLE_PASSWORD,
@@ -169,8 +170,8 @@ def _create(engine, taken: set[str]) -> Player | None:
         alignment=rng.choice(list(Alignment)),
         ethos=rng.choice(list(Ethos)),
         last_login=utcnow(),
-        x=rng.randrange(events_map_x()),
-        y=rng.randrange(events_map_y()),
+        x=x,
+        y=y,
         npc=PRESENT,
     )
     for slot in SLOTS:

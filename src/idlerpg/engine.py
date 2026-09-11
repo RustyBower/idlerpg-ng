@@ -136,6 +136,7 @@ class Engine:
         if self.find_identity(platform, external_id) is not None:
             raise RegistrationError("that account already has a character")
 
+        x, y = events.spawn_point(MAP_X, MAP_Y, self.rng)
         player = Player(
             name=name,
             password_hash=hash_password(password),
@@ -144,8 +145,8 @@ class Engine:
             next_ttl=int(ttl(0, self.curve)),
             alignment=Alignment.NEUTRAL,
             last_login=utcnow(),
-            x=self.rng.randrange(MAP_X),
-            y=self.rng.randrange(MAP_Y),
+            x=x,
+            y=y,
         )
         player.identities.append(
             PlatformIdentity(

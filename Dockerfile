@@ -5,7 +5,8 @@ FROM python:3.13.15-slim
 RUN pip install --no-cache-dir "SQLAlchemy>=2.0" "psycopg[binary]>=3.1" "discord.py>=2.3"
 
 WORKDIR /app
-COPY pyproject.toml README.md ./
+# CHANGELOG.md is read by the website's what's-new page, from the WORKDIR.
+COPY pyproject.toml README.md CHANGELOG.md ./
 COPY src/ ./src/
 RUN pip install --no-cache-dir --no-deps . && rm -rf /root/.cache
 

@@ -327,8 +327,8 @@ class TestReadableMessages:
         pytest.fail("no vigil in 20 seeds")
 
     def test_journeys_go_between_named_places(self, engine):
-        from idlerpg.lore import PLACES
-        spots = {p.at for p in PLACES}
+        from idlerpg.lore import PLACES, place
+        spots = {place(p.at, 500, 500) for p in PLACES}
         party = make(engine, 4, level=45)
         for seed in range(20):
             engine.rng.seed(seed)
