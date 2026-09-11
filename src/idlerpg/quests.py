@@ -149,8 +149,11 @@ def steer(session: Session, elapsed: float, rng: random.Random) -> set[int]:
     quest = active_quest(session)
     if quest is None or quest.kind != 2:
         return set()
-    whole, part = divmod(elapsed, JOURNEY_PACE)
-    steps = int(whole) + (1 if rng.random() < part / JOURNEY_PACE else 0)
+    # The party walks at its fastest strider's pace: one carries the rest.
+    stride = max((events.rank(m.player, "stride") for m in quest.participants), default=0)
+    pace = JOURNEY_PACE / (1 + events.STRIDE_PER_RANK * stride)
+    whole, part = divmod(elapsed, pace)
+    steps = int(whole) + (1 if rng.random() < part / pace else 0)
     x, y = _target(quest)
     walked = set()
     for member in quest.participants:

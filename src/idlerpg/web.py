@@ -92,6 +92,7 @@ def load_players():
                     "x": p.x or 0, "y": p.y or 0,
                     "created": p.created, "lastlogin": p.last_login,
                     "alignment": p.alignment_name.title(),
+                    "prestige": p.prestige or 0,
                     "admin": bool(p.is_admin),
                     "platforms": plats,
                     "items": {i.slot: i.value for i in p.items},
@@ -101,7 +102,7 @@ def load_players():
                 })
     except Exception:
         return []
-    players.sort(key=lambda q: (-q["level"], q["next"]))
+    players.sort(key=lambda q: (-q["prestige"], -q["level"], q["next"]))
     return players
 
 
@@ -194,6 +195,7 @@ th,td{text-align:left;padding:.5rem .5rem;border-bottom:1px solid var(--line)}
 th{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 td.rank{color:var(--muted);width:2.5rem}
+.star{color:var(--accent);font-size:.8em;font-weight:700;margin-left:.35rem}
 tr.off td{color:var(--muted)}
 .who{font-weight:600;unicode-bidi:isolate}.who a{color:inherit;text-decoration:none}
 .who a:hover{color:var(--accent)}
@@ -424,6 +426,14 @@ def event_feed(limit=10):
     return f'<h2>Recently in the realm</h2><ul class="feed">{items}</ul>'
 
 
+def star(p) -> str:
+    """A prestiged character's star, ★2 for twice; nothing otherwise."""
+    count = p.get("prestige") or 0
+    if not count:
+        return ""
+    return f'<span class="star" title="Prestiged {count}x">&#9733;{count}</span>'
+
+
 def page_index(players):
     if not players:
         return layout("Standings", register_hint() + event_feed())
@@ -432,7 +442,7 @@ def page_index(players):
         f'<tr class="{"on" if p["online"] else "off"}">'
         f'<td class="rank">{i}</td>'
         f'<td class="who"><span class="dot {"on" if p["online"] else "off"}"></span>'
-        f'<a href="{link(p["username"])}">{E(p["username"])}</a></td>'
+        f'<a href="{link(p["username"])}">{E(p["username"])}</a>{star(p)}</td>'
         f'<td class="num">{p["level"]}</td><td>{E(p["class"])}</td>'
         f'<td class="num">{E(duration(p["next"]))}</td>'
         f'<td class="num">{p["itemsum"]}</td>'

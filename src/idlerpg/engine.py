@@ -322,7 +322,7 @@ class Engine:
             remaining = player.next_ttl - elapsed_seconds
             while remaining <= 0:
                 player.level += 1
-                remaining += int(ttl(player.level, self.curve))
+                remaining += int(ttl(player.level, self.curve) * events.swiftness(player))
                 announcements.append(Outcome(
                     f"{player.name} the {player.character_class or 'wanderer'} "
                     f"reaches level {player.level}! "
@@ -705,7 +705,8 @@ class Engine:
     def top_players(self, count: int = 3) -> list[Player]:
         """Highest level first, then whoever is closest to the next one."""
         return list(self.session.scalars(
-            select(Player).order_by(Player.level.desc(), Player.next_ttl.asc())
+            select(Player).order_by(Player.prestige.desc(), Player.level.desc(),
+                                    Player.next_ttl.asc())
             .limit(count)
         ).all())
 

@@ -51,6 +51,30 @@ CHAOS_INTERVAL = 6 * DAY      # an odd event, per chaotic player online
 BALANCE_INTERVAL = 20 * DAY   # a nudge to the middle, per true-neutral player
 BALANCE_SHIFT = 0.05
 
+# Prestige perks, per rank bought; the most ranks of each live in prestige.py.
+SWIFTNESS_PER_RANK = 0.02   # each level takes this much less time
+COMPOSURE_PER_RANK = 0.02   # penalties this much smaller
+PENALTY_FLOOR = 0.85        # lawful and composure together cut at most 15%
+FORTUNE_PER_RANK = 0.05     # godsends this much stronger
+WARDING_PER_RANK = 0.05     # calamities this much weaker
+STRIDE_PER_RANK = 0.20      # journeys walked this much faster
+CHAMPION_PER_RANK = 0.02    # battle strength this much greater
+
+
+def rank(player, perk: str) -> int:
+    """A player's ranks in a prestige perk, or none for anything without."""
+    reader = getattr(player, "perk_rank", None)
+    return reader(perk) if reader else 0
+
+
+def swiftness(player) -> float:
+    """What a level costs this player, as a share of the curve's time."""
+    return 1 - SWIFTNESS_PER_RANK * rank(player, "swiftness")
+
+
+def champion(player) -> float:
+    return 1 + CHAMPION_PER_RANK * rank(player, "champion")
+
 
 def ethos(player) -> str:
     """A player's place on the law-chaos axis, as a word."""
@@ -59,7 +83,13 @@ def ethos(player) -> str:
 
 
 def scale_penalty(player, seconds: int) -> int:
-    return int(seconds * LAWFUL_PENALTY) if ethos(player) == "lawful" else seconds
+    """A penalty after lawful's cut and the composure perk, which together
+    never take off more than PENALTY_FLOOR allows."""
+    factor = (LAWFUL_PENALTY if ethos(player) == "lawful" else 1.0) \
+        * (1 - COMPOSURE_PER_RANK * rank(player, "composure"))
+    if factor == 1.0:
+        return seconds
+    return int(seconds * max(PENALTY_FLOOR, factor))
 
 
 def will_fight(challenger, rng: random.Random) -> bool:
@@ -147,7 +177,8 @@ def calamity(player, rng: random.Random) -> Outcome:
                 kind="calamity",
             )
     amount = int(int(5 + rng.randrange(8)) / 100 * player.next_ttl
-                 * LUCK[ethos(player)])
+                 * LUCK[ethos(player)]
+                 * (1 - WARDING_PER_RANK * rank(player, "warding")))
     player.next_ttl += amount
     return Outcome(
         f"{player.name} {LORE.calamity(rng)}. That costs them {duration(amount)} "
@@ -170,7 +201,8 @@ def godsend(player, rng: random.Random) -> Outcome:
                     kind="godsend",
                 )
     amount = int(int(5 + rng.randrange(8)) / 100 * player.next_ttl
-                 * LUCK[ethos(player)])
+                 * LUCK[ethos(player)]
+                 * (1 + FORTUNE_PER_RANK * rank(player, "fortune")))
     player.next_ttl = max(1, player.next_ttl - amount)
     return Outcome(
         f"{player.name} {LORE.godsend(rng)}! That brings them {duration(amount)} "
@@ -186,8 +218,8 @@ def item_sum(player) -> int:
 def battle(challenger, opponent, rng: random.Random) -> list[Outcome]:
     """Pit two players against each other, rolling against their item sums."""
     out: list[Outcome] = []
-    my_sum = max(1, item_sum(challenger))
-    opp_sum = max(1, item_sum(opponent))
+    my_sum = max(1, int(item_sum(challenger) * champion(challenger)))
+    opp_sum = max(1, int(item_sum(opponent) * champion(opponent)))
     my_roll = rng.randrange(my_sum)
     opp_roll = rng.randrange(opp_sum)
 

@@ -23,6 +23,7 @@ Running at [idlerpg.129irc.com](https://idlerpg.129irc.com/) on
     /msg idlerpg ALIGN <lawful|neutral|chaotic> <good|neutral|evil>
     /msg idlerpg NEWPASS <current> <new>
     /msg idlerpg REMOVEME <password>        # deletes your character for good
+    /msg idlerpg PRESTIGE                   # from level 60; then PERKS, PERK <name>
     /msg idlerpg MERGE <name> <password>   # fold another character into this one
 
 The network blocks private messages from brand new connections, so wait about
@@ -48,6 +49,7 @@ role too, and a DM explaining how to register if you have no character yet:
     !align <lawful|neutral|chaotic> <good|neutral|evil>
     !newpass <current> <new>
     !removeme <password>
+    !prestige, !perks, !perk <name>
     !merge <name> <password>
 
 `!register`, `!login`, `!merge`, `!newpass` and `!removeme` carry a password,
@@ -88,6 +90,14 @@ and is likelier to be chosen for quests; chaotic feels them half as hard again,
 will fight anyone, and attracts the odd random event. True neutral is tugged
 now and then toward the realm's middle level. The numbers sit together at the
 top of `events.py`, to be tuned as the realm is watched.
+
+**Prestige.** From level 60 you may start over: `PRESTIGE` shows what it
+would do, `PRESTIGE confirm` does it. You go back to level 0 with fresh items,
+keep your name, alignment and perks, gain a ★ on the site - where prestige
+ranks first - and earn a point per level past 50 to spend with `PERK <name>`.
+`PERKS` lists them: swiftness, composure, fortune, warding, heirloom, stride
+and champion, each capped. It is never forced; past 60 each level costs a week
+or more, so waiting earns more points at a real price.
 
 **Events** are composed from the realm's own lore: thirty named places on the
 map, a cast of creatures and helpers, and small grammars that make tens of

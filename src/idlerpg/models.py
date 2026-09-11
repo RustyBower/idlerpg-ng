@@ -12,6 +12,7 @@ each platform to it. One human is one character wherever they connect.
 from __future__ import annotations
 
 import enum
+import json
 from datetime import datetime, timezone
 
 from sqlalchemy import (
@@ -89,6 +90,12 @@ class Player(Base):
     ethos: Mapped[Ethos] = mapped_column(
         Enum(Ethos, native_enum=False, length=16), default=Ethos.NEUTRAL
     )
+    # Prestige: how many times the character has started over, the points
+    # those fresh starts earned and not yet spent, and the perks bought with
+    # them, as {"swiftness": 2, ...}. See prestige.py.
+    prestige: Mapped[int] = mapped_column(Integer, default=0)
+    points: Mapped[int] = mapped_column(Integer, default=0)
+    perks: Mapped[str] = mapped_column(String(255), default="{}")
     is_admin: Mapped[bool] = mapped_column(default=False)
     # Position in the realm, for the map and journey quests.
     x: Mapped[int] = mapped_column(Integer, default=0)
@@ -122,6 +129,15 @@ class Player(Base):
         ethos = (self.ethos or Ethos.NEUTRAL).value
         moral = self.alignment.value
         return "true neutral" if ethos == moral == "neutral" else f"{ethos} {moral}"
+
+    def perk_rank(self, name: str) -> int:
+        """How many ranks of a perk this character has bought."""
+        return int(json.loads(self.perks or "{}").get(name, 0))
+
+    def set_perk_rank(self, name: str, rank: int) -> None:
+        ranks = json.loads(self.perks or "{}")
+        ranks[name] = rank
+        self.perks = json.dumps(ranks, sort_keys=True)
 
 
 class PlatformIdentity(Base):
@@ -255,6 +271,9 @@ ADDED_COLUMNS = [
     ("platform_identity", "login_mask", "VARCHAR(255)"),
     # Enum names, as SQLAlchemy stores them; existing characters start neutral.
     ("player", "ethos", "VARCHAR(16) DEFAULT 'NEUTRAL'"),
+    ("player", "prestige", "INTEGER DEFAULT 0"),
+    ("player", "points", "INTEGER DEFAULT 0"),
+    ("player", "perks", "VARCHAR(255) DEFAULT '{}'"),
 ]
 
 

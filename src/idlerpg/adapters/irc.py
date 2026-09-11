@@ -25,7 +25,7 @@ import re
 import ssl
 from dataclasses import dataclass
 
-from .. import __version__, admin
+from .. import __version__, admin, prestige
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
@@ -71,6 +71,7 @@ HELP = (
     "character too) | LOGOUT | WHOAMI | "
     "ALIGN <lawful|neutral|chaotic> <good|neutral|evil> | "
     "NEWPASS <current> <new> | REMOVEME <password> | "
+    "PRESTIGE (from level 60) | PERKS | PERK <name> | "
     "MERGE <name> <password> (fold another character of yours into this one)"
 )
 
@@ -370,6 +371,9 @@ class IRCAdapter:
                 f"next level in {duration(player.next_ttl)}, "
                 f"alignment {player.alignment_name}.",
             )
+        elif verb in prestige.VERBS:
+            self.notice_lines(
+                nick, prestige.command(self.engine, self.character_for_nick(nick), verb, args))
         elif verb in admin.VERBS:
             self.notice_lines(
                 nick, admin.run(self.engine, self.character_for_nick(nick), verb, args))
