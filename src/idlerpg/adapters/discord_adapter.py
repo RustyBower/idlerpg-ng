@@ -21,7 +21,7 @@ import logging
 
 import discord
 
-from .. import admin, prestige
+from .. import admin, fights, prestige
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
@@ -45,7 +45,8 @@ HELP = (
     "`!merge <name> <password>` (fold another character of yours into this "
     "one), `!align <lawful|neutral|chaotic> <good|neutral|evil>`, "
     "`!newpass <current> <new>`, "
-    "`!removeme <password>`, `!prestige` (from level 60), `!perks`, "
+    "`!removeme <password>`, `!fight [name]` (once a day, from level 10), "
+    "`!prestige` (from level 60), `!perks`, "
     "`!perk <name>`, `!whoami`. Anything with a password goes in a DM."
 )
 
@@ -581,6 +582,10 @@ class DiscordAdapter(discord.Client):
                 f"next level in {duration(player.next_ttl)}, "
                 f"alignment {player.alignment_name}."
             )
+        elif verb.upper() in fights.VERBS:
+            await reply(fights.command(
+                self.engine, self.engine.player_for(Platform.DISCORD, external),
+                verb, args))
         elif verb.upper() in prestige.VERBS:
             await reply(prestige.command(
                 self.engine, self.engine.player_for(Platform.DISCORD, external),

@@ -103,6 +103,16 @@ each level costs a quarter more than the last: 65 is seven weeks on, 70 half a
 year, 80 six years. Waiting earns more points at a real price, and 60 is where
 most characters will want to begin again.
 
+**Fights.** Once a day, from level 10, `FIGHT <name>` challenges someone in
+the game and no more than 5 levels below you; `FIGHT` alone shows who is in
+reach. Both roll against their items, and the winner takes 5% of the
+loser's remaining time, but never more than 5% of what the winner's own
+level costs. Whoever is challenged is shielded from challenges for a day.
+The rules come from `python -m idlerpg.fairness` (below): sized by the loser,
+bullying newcomers wins next to nothing; capped by the winner, nobody wins
+days at the level-60 wall; and with no bonus, fights move time between
+players without making any.
+
 **The map.** Characters drift at random through the middle 80% of the map,
 the heartland, and wander back in from the wilds at its rim. The realm's
 places - and so its journeys - all lie inside the heartland. The map no

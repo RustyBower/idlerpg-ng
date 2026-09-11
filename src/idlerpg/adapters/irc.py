@@ -27,7 +27,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 
-from .. import __version__, admin, prestige
+from .. import __version__, admin, fights, prestige
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
@@ -73,6 +73,7 @@ HELP = (
     "character too) | LOGOUT | WHOAMI | "
     "ALIGN <lawful|neutral|chaotic> <good|neutral|evil> | "
     "NEWPASS <current> <new> | REMOVEME <password> | "
+    "FIGHT [name] (once a day, from level 10) | "
     "PRESTIGE (from level 60) | PERKS | PERK <name> | "
     "MERGE <name> <password> (fold another character of yours into this one)"
 )
@@ -380,7 +381,7 @@ class IRCAdapter:
         verb, args = parts[0].upper(), parts[1:]
 
         if verb == "HELP":
-            self.notice(nick, HELP)
+            self.notice_lines(nick, HELP)
         elif verb == "REGISTER":
             if len(args) < 3:
                 self.notice(nick, "REGISTER <name> <password> <class>")
@@ -498,6 +499,9 @@ class IRCAdapter:
                 f"next level in {duration(player.next_ttl)}, "
                 f"alignment {player.alignment_name}.",
             )
+        elif verb in fights.VERBS:
+            self.notice_lines(
+                nick, fights.command(self.engine, self.character_for_nick(nick), verb, args))
         elif verb in prestige.VERBS:
             self.notice_lines(
                 nick, prestige.command(self.engine, self.character_for_nick(nick), verb, args))
@@ -505,7 +509,7 @@ class IRCAdapter:
             self.notice_lines(
                 nick, admin.run(self.engine, self.character_for_nick(nick), verb, args))
         else:
-            self.notice(nick, HELP)
+            self.notice_lines(nick, HELP)
 
     def handle_ctcp(self, nick: str, request: str) -> None:
         """Answer the CTCP queries clients send on their own. Anything else is

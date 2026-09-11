@@ -3,6 +3,17 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.17.0 - unreleased
+
+- **Fights.** Once a day, from level 10, `FIGHT <name>` (`!fight` on Discord)
+  challenges someone in the game and no more than 5 levels below you. The
+  winner takes 5% of the loser's remaining time, at most 5% of their own
+  level's cost; whoever is challenged is shielded for a day. `FIGHT` alone
+  shows who is in reach.
+- The rules were settled in simulation first: `python -m idlerpg.fairness`
+  pits candidate rules against bullies, underdogs and prestiged veterans in a
+  realm shaped like the live one, and at the level-60 wall.
+
 ## 0.16.2 - 2026-09-11
 
 - **Voice on IRC.** Players are voiced while they are logged in and in the

@@ -100,6 +100,10 @@ class Player(Base):
     # None for a person. For the realm's own characters, the NPCs, where they
     # are: present, away or benched. See npcs.py.
     npc: Mapped[str | None] = mapped_column(String(16), default=None)
+    # FIGHT, in Unix seconds: when this character may next challenge
+    # someone, and until when nobody may challenge them. See fights.py.
+    fight_ready_at: Mapped[int] = mapped_column(BigInteger, default=0)
+    shield_until: Mapped[int] = mapped_column(BigInteger, default=0)
     # Position in the realm, for the map and journey quests.
     x: Mapped[int] = mapped_column(Integer, default=0)
     y: Mapped[int] = mapped_column(Integer, default=0)
@@ -281,6 +285,8 @@ ADDED_COLUMNS = [
     ("player", "points", "INTEGER DEFAULT 0"),
     ("player", "perks", "VARCHAR(255) DEFAULT '{}'"),
     ("player", "npc", "VARCHAR(16)"),
+    ("player", "fight_ready_at", "BIGINT DEFAULT 0"),
+    ("player", "shield_until", "BIGINT DEFAULT 0"),
 ]
 
 

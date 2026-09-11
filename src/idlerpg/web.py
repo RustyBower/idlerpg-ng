@@ -683,6 +683,7 @@ def page_game():
   <tr><th>Change password</th><td><code>/msg {E(BOT_NICK)} NEWPASS &lt;current&gt; &lt;new&gt;</code></td></tr>
   <tr><th>Delete your character</th><td><code>/msg {E(BOT_NICK)} REMOVEME &lt;password&gt;</code></td></tr>
   <tr><th>Merge a second character</th><td><code>/msg {E(BOT_NICK)} MERGE &lt;name&gt; &lt;password&gt;</code></td></tr>
+  <tr><th>Fight someone</th><td><code>/msg {E(BOT_NICK)} FIGHT &lt;name&gt;</code>, once a day; <code>FIGHT</code> alone shows who is in reach</td></tr>
   <tr><th>Log out</th><td><code>/msg {E(BOT_NICK)} LOGOUT</code></td></tr>
 </table>
 <p class="muted">Connect to <code>irc.129irc.com</code> on port <code>6697</code> with
@@ -701,6 +702,7 @@ that stable.</p>
   <tr><th>Change password</th><td><code>!newpass &lt;current&gt; &lt;new&gt;</code></td></tr>
   <tr><th>Delete your character</th><td><code>!removeme &lt;password&gt;</code></td></tr>
   <tr><th>Merge a second character</th><td><code>!merge &lt;name&gt; &lt;password&gt;</code></td></tr>
+  <tr><th>Fight someone</th><td><code>!fight &lt;name&gt;</code>, once a day; <code>!fight</code> alone shows who is in reach</td></tr>
   <tr><th>Commands</th><td><code>!help</code></td></tr>
 </table>
 <p class="muted"><strong>Send <code>!register</code>, <code>!login</code>, <code>!merge</code>,
@@ -735,6 +737,13 @@ scale with your level, so the higher you climb the more a slip costs.</p>
   <tr><td>Being kicked</td><td>250&times;</td></tr>
   <tr><td>Failing a quest</td><td>15&times;, for each quester</td></tr>
 </tbody></table>
+
+<h2>Fights</h2>
+<p class="muted">Once a day, from level 10, you may challenge someone who is in the
+game and no more than 5 levels below you. You both roll against your items, and the
+winner takes 5% of the loser's remaining time - but never more than 5% of what the
+winner's own level costs. Whoever is challenged is safe from challenges for a day,
+so nobody can be piled on, and beating newcomers wins next to nothing.</p>
 
 <h2>The climb</h2>
 <p class="muted">Each level costs {RP_STEP}&times; the last, so progress is gentle
