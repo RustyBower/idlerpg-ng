@@ -3,7 +3,7 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.22.0 - unreleased
+## 0.22.0 - 2026-09-11
 
 - **Slash commands on Discord.** Every command is also a slash command -
   `/register`, `/login`, `/whoami`, `/fight`, `/achievements`, `/align` with
