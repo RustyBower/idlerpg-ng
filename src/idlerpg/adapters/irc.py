@@ -136,6 +136,8 @@ class IRCAdapter:
         # followed from NAMES, WHO and MODE.
         self.ranks: set[str] = set()
         self.voiced: set[str] = set()
+        # Told, this connection, why they cannot speak in a moderated channel.
+        self.greeted: set[str] = set()
 
     # ------------------------------------------------------------------ wire
 
@@ -357,9 +359,27 @@ class IRCAdapter:
             elif m in "qaoh" and target == self.nick.lower():
                 (self.ranks.add if sign == "+" else self.ranks.discard)(m)
         if self.ranks and not had:
-            # Just given a rank - usually ChanServ's op, after we joined and
-            # logins resumed: voice everyone already logged in.
-            self.voice(*[n for n in self.bound if n in self.members])
+            self._ranked()
+
+    def _ranked(self) -> None:
+        """Just given a rank in the channel - usually ChanServ's op, after we
+        joined and logins resumed: moderate the channel if asked, and voice
+        everyone already logged in."""
+        if self.cfg.moderate:
+            self.send(f"MODE {self.cfg.channel} +m")
+        self.voice(*[n for n in self.bound if n in self.members])
+
+    def _greet(self, nick: str) -> None:
+        """In a moderated channel nobody logged out can speak, so tell them
+        why and how to play - once a connection, not at every rejoin."""
+        if not self.cfg.moderate or nick.lower() in self.greeted:
+            return
+        self.greeted.add(nick.lower())
+        self.notice(nick, f"Welcome to {self.cfg.channel}. Only players who are logged "
+                          f"in are voiced here, and only they can speak - though "
+                          f"speaking costs them time. To play: /msg {self.nick} "
+                          f"REGISTER <name> <password> <class>, or LOGIN <name> "
+                          f"<password> if you have a character.")
 
     def _prefixed(self, name: str) -> str:
         """A NAMES or WHO entry's nick, noting its voice and, if it is us,
@@ -369,7 +389,10 @@ class IRCAdapter:
         if "+" in prefixes:
             self.voiced.add(nick.lower())
         if nick.lower() == self.nick.lower():
+            had = bool(self.ranks)
             self.ranks.update(self.RANKS[p] for p in prefixes if p in self.RANKS)
+            if self.ranks and not had:
+                self._ranked()
         return nick
 
     # -------------------------------------------------------------- commands
@@ -622,6 +645,8 @@ class IRCAdapter:
                 self.voice(msg.nick)
             else:
                 self.resume(msg.nick, msg.prefix)
+                if msg.nick.lower() not in self.bound:
+                    self._greet(msg.nick)
         elif cmd == "353":
             # NAMES reply: me = channel :nick @op +voiced ...
             if len(msg.params) >= 4 and msg.params[2].lower() == channel:
@@ -751,6 +776,7 @@ class IRCAdapter:
             self.members.clear()
             self.voiced.clear()
             self.ranks.clear()
+            self.greeted.clear()
             if self.writer:
                 self.writer.close()
                 self.writer = None

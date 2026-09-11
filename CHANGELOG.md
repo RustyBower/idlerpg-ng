@@ -3,6 +3,15 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.17.1 - unreleased
+
+- **Only the logged in speak in the game channel.** With `IRC_MODERATE` the
+  bot keeps it moderated (`+m`) whenever it holds ops, so the voice that marks
+  a logged-in player is also what lets them talk, and anyone who joins logged
+  out is told, once, why they cannot and how to play.
+- The how-to-play page says what the `+` by a name means.
+- *Operators:* `IRC_MODERATE=true` turns moderation on.
+
 ## 0.17.0 - 2026-09-11
 
 - **Fights.** Once a day, from level 10, `FIGHT <name>` (`!fight` on Discord)

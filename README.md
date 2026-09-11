@@ -264,6 +264,7 @@ length does not change the game.
 | `IRC_NICKSERV_PASSWORD` | | identifies on connect, and ghosts a stale connection holding the nick |
 | `IRC_NICKSERV_EMAIL` | | registers the nick if unregistered |
 | `IRC_VOICE` | `true` | voice players while they are logged in; needs ops in the channel |
+| `IRC_MODERATE` | `false` | keep the channel `+m`, so only logged-in (voiced) players can speak, and tell anyone joining logged out how to play |
 | `DISCORD_TOKEN` | | omit to run IRC only |
 | `DISCORD_CHANNEL_ID` | | the game channel |
 | `DISCORD_OPTIN_ROLE_ID` | | the game role; registering grants it |

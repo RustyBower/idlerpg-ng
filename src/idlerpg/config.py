@@ -50,6 +50,9 @@ class IRCConfig:
     # Voice players while they are logged in, as the original did. Takes a
     # rank in the channel (ops or halfops); without one it does nothing.
     voice: bool = field(default_factory=lambda: _bool("IRC_VOICE", True))
+    # Keep the channel moderated (+m), so only the voiced - the logged in -
+    # can speak, and tell anyone who joins logged out why and how to play.
+    moderate: bool = field(default_factory=lambda: _bool("IRC_MODERATE", False))
 
 
 @dataclass

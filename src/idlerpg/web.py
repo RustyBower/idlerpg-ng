@@ -689,7 +689,8 @@ def page_game():
 <p class="muted">Connect to <code>irc.129irc.com</code> on port <code>6697</code> with
 TLS and join <code>{E(CHANNEL)}</code>. The network blocks private messages from brand
 new connections, so wait about two minutes after connecting before you register.
-You earn only while you are in {E(CHANNEL)}. If the bot restarts it logs you back in
+You earn only while you are in {E(CHANNEL)}, where players who are logged in are
+voiced: a <code>+</code> by your name means you are playing. If the bot restarts it logs you back in
 by itself, as long as you are still connected from the same address - a bouncer keeps
 that stable.</p>
 

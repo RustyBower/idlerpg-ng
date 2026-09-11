@@ -163,3 +163,40 @@ class TestVoice:
         self.opped(irc, "rusty")
         feed(irc, ":rusty!u@h PRIVMSG idlerpg :REGISTER rusty pw Sysadmin")
         assert modes(irc) == []
+
+
+class TestModerated:
+    def told(self, irc, nick):
+        return [line for line in irc.writer.lines
+                if line.startswith(f"NOTICE {nick} ") and "voiced here" in line]
+
+    def test_the_bot_moderates_once_opped(self, irc):
+        irc.cfg.moderate = True
+        feed(irc, f":ChanServ!s@services MODE {CHANNEL} +o idlerpg")
+        assert f"MODE {CHANNEL} +m" in irc.writer.lines
+
+    def test_or_when_it_joins_already_opped(self, irc):
+        irc.cfg.moderate = True
+        feed(irc, f":server 353 idlerpg = {CHANNEL} :@idlerpg rusty")
+        assert f"MODE {CHANNEL} +m" in irc.writer.lines
+
+    def test_not_unless_asked(self, irc):
+        feed(irc, f":ChanServ!s@services MODE {CHANNEL} +o idlerpg")
+        assert f"MODE {CHANNEL} +m" not in irc.writer.lines
+
+    def test_a_newcomer_is_told_why_they_cannot_speak_once(self, irc):
+        irc.cfg.moderate = True
+        feed(irc, f":guest!u@h JOIN {CHANNEL}")
+        feed(irc, f":guest!u@h PART {CHANNEL}")
+        feed(irc, f":guest!u@h JOIN {CHANNEL}")
+        assert len(self.told(irc, "guest")) == 1
+
+    def test_the_logged_in_are_not_told(self, irc):
+        irc.cfg.moderate = True
+        feed(irc, ":rusty!u@h PRIVMSG idlerpg :REGISTER rusty pw Sysadmin")
+        feed(irc, f":rusty!u@h JOIN {CHANNEL}")
+        assert self.told(irc, "rusty") == []
+
+    def test_nobody_is_told_unless_moderated(self, irc):
+        feed(irc, f":guest!u@h JOIN {CHANNEL}")
+        assert self.told(irc, "guest") == []
