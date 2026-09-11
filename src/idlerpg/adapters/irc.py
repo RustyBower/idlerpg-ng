@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
+from ..text import safe
 
 log = logging.getLogger(__name__)
 
@@ -124,11 +125,13 @@ class IRCAdapter:
         log.debug(">> %s", line)
         self.writer.write((line + "\r\n").encode("utf-8", "replace"))
 
+    # Everything the game says goes through safe(): a name or class holding
+    # bidi overrides or colour codes must not flip or paint the channel.
     def notice(self, target: str, text: str) -> None:
-        self.send(f"NOTICE {target} :{text}")
+        self.send(f"NOTICE {target} :{safe(text)}")
 
     def say(self, text: str) -> None:
-        self.send(f"PRIVMSG {self.cfg.channel} :{text}")
+        self.send(f"PRIVMSG {self.cfg.channel} :{safe(text)}")
 
     # --------------------------------------------------------------- helpers
 
@@ -482,7 +485,7 @@ class IRCAdapter:
         """Set the channel topic. Needs ops, which ChanServ grants on join."""
         if self.writer is None:
             return
-        self.send(f"TOPIC {self.cfg.channel} :{text}")
+        self.send(f"TOPIC {self.cfg.channel} :{safe(text)}")
         try:
             await self.writer.drain()
         except Exception:

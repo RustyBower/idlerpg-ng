@@ -368,3 +368,30 @@ class TestAlignment:
         p = register(engine)
         with pytest.raises(RegistrationError):
             engine.set_alignment(p, "chaotic")
+
+
+class TestNamesAreChecked:
+    def test_a_bidi_override_is_refused(self, engine):
+        with pytest.raises(RegistrationError, match="letters"):
+            engine.register("\u202eprofit", "pw", "Rogue", Platform.IRC, "x")
+
+    def test_a_coloured_class_is_refused(self, engine):
+        with pytest.raises(RegistrationError, match="control or formatting"):
+            engine.register("profit", "pw", "\x0302,04colored", Platform.IRC, "x")
+
+    def test_underscores_are_not_wildcards(self, engine):
+        register(engine, "rusty")
+        other = register(engine, "r_sty")
+        assert other.name == "r_sty"
+        assert engine.find_player("r_sty").name == "r_sty"
+        assert engine.find_player("RUSTY").name == "rusty"
+
+    def test_a_percent_sign_matches_nobody(self, engine):
+        register(engine, "rusty")
+        assert engine.find_player("r%") is None
+        assert engine.authenticate("%", "hunter2") is None
+
+    def test_the_event_log_is_stored_clean(self, engine):
+        from idlerpg.models import EventLog
+        engine.log_event("test", "\u202eflipped \x0304red")
+        assert engine.session.query(EventLog).one().message == "flipped red"

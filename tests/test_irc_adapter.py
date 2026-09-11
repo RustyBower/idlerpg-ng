@@ -504,3 +504,18 @@ class TestNickInUse:
         self._stand_in(adapter)
         feed(adapter, ":idlerpg_!bot@bot.host JOIN #idlerpg")
         assert "WHO #idlerpg" in sent(adapter)
+
+
+class TestNothingGarblesTheChannel:
+    def test_announcements_drop_bidi_and_colour(self, adapter):
+        adapter.say("\u202eprofit-on-irc \x0304,02\x02won")
+        assert adapter.writer.lines[-1] == "PRIVMSG #idlerpg :profit-on-irc won"
+
+    def test_notices_too(self, adapter):
+        adapter.notice("rusty", "hi \u202eflip")
+        assert adapter.writer.lines[-1] == "NOTICE rusty :hi flip"
+
+    def test_a_garbled_name_is_refused_at_registration(self, adapter):
+        feed(adapter, ":profit!u@h PRIVMSG idlerpg :REGISTER \u202eprofit pw Rogue")
+        assert "Cannot register" in sent(adapter)
+        assert adapter.engine.find_player("\u202eprofit") is None

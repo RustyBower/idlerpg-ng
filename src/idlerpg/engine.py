@@ -13,10 +13,11 @@ import os
 import random
 from dataclasses import dataclass
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import hash_password, verify_password
+from .text import check_class, check_name, safe
 
 from .models import (
     Alignment,
@@ -100,11 +101,11 @@ class Engine:
 
     def register(self, name: str, password: str, character_class: str,
                  platform: Platform, external_id: str) -> Player:
-        name = name.strip()
-        if not name:
-            raise RegistrationError("a character needs a name")
-        if len(name) > 64:
-            raise RegistrationError("that name is too long")
+        try:
+            name = check_name(name)
+            character_class = check_class(character_class)
+        except ValueError as exc:
+            raise RegistrationError(str(exc)) from None
         if self.find_player(name) is not None:
             raise RegistrationError(f"{name} is already taken")
         if self.find_identity(platform, external_id) is not None:
@@ -146,7 +147,10 @@ class Engine:
         return self.session.scalar(
             select(Player)
             .options(selectinload(Player.identities), selectinload(Player.items))
-            .where(Player.name.ilike(name))
+            # Exact but case-blind. ilike() treated _ and % in a name as
+            # wildcards, so "r_sty" collided with "rusty" and "p%" matched
+            # whoever came first.
+            .where(func.lower(Player.name) == name.strip().lower())
         )
 
     def find_identity(self, platform: Platform, external_id: str) -> PlatformIdentity | None:
@@ -513,7 +517,7 @@ class Engine:
     # ----------------------------------------------------------------- events
 
     def log_event(self, kind: str, message: str, commit: bool = True) -> None:
-        self.session.add(EventLog(kind=kind, message=message[:1024]))
+        self.session.add(EventLog(kind=kind, message=safe(message)[:1024]))
         if commit:
             self.session.commit()
 

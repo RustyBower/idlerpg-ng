@@ -322,3 +322,21 @@ class TestAlignCommand:
     async def test_help_mentions_it(self, adapter, guild):
         m = await command(adapter, Member(guild, role=True), "!help")
         assert "!align" in m.replies[0]
+
+
+class TestNothingGarblesDiscord:
+    def test_nothing_the_game_says_can_ping(self, adapter):
+        mentions = adapter.allowed_mentions
+        assert not mentions.everyone and not mentions.roles and not mentions.users
+
+    @pytest.mark.asyncio
+    async def test_announcements_are_cleaned_and_shown_literally(self, adapter, monkeypatch):
+        posted = []
+
+        class Chan:
+            async def send(self, text):
+                posted.append(text)
+
+        monkeypatch.setattr(adapter, "get_channel", lambda _id: Chan())
+        await adapter.announce("\u202e**bold** \x0304win")
+        assert posted == ["\\*\\*bold\\*\\* win"]

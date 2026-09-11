@@ -24,6 +24,7 @@ import discord
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
+from ..text import safe
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +86,10 @@ class DiscordAdapter(discord.Client):
         intents.members = True
         intents.message_content = True
         intents.reactions = True
-        super().__init__(intents=intents)
+        # Nothing the game says may ping anyone: a character named after a
+        # role, or "@everyone" in a class, would otherwise notify the server.
+        super().__init__(intents=intents,
+                         allowed_mentions=discord.AllowedMentions.none())
         self.engine = engine
         self.channel_id = channel_id
         self.optin_channel_id = optin_channel_id
@@ -322,7 +326,7 @@ class DiscordAdapter(discord.Client):
         if channel is None:
             return
         try:
-            await channel.edit(topic=text[:1024])
+            await channel.edit(topic=discord.utils.escape_markdown(safe(text))[:1024])
         except discord.Forbidden:
             log.warning("cannot set the Discord topic - needs Manage Channels")
         except discord.HTTPException:
@@ -336,7 +340,9 @@ class DiscordAdapter(discord.Client):
         if channel is None:
             return
         try:
-            await channel.send(text)
+            # The game's own text carries no markdown, so any in it came from
+            # a name or class and is shown literally.
+            await channel.send(discord.utils.escape_markdown(safe(text)))
         except discord.HTTPException:
             log.debug("could not announce to Discord")
 
@@ -439,7 +445,7 @@ class DiscordAdapter(discord.Client):
         is_dm = isinstance(message.channel, discord.DMChannel)
 
         async def reply(text: str) -> None:
-            await message.reply(text, mention_author=False)
+            await message.reply(safe(text), mention_author=False)
 
         # These take a password. On IRC they arrive as a private message; the
         # Discord equivalent is a DM. Refuse them in a channel and delete the

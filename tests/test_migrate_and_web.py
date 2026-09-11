@@ -129,3 +129,10 @@ class TestHealthReflectsTheDatabase:
         monkeypatch.setattr(web, "_engine", None)
         with Session(web.db()) as s:
             assert s.execute(select(func.count()).select_from(Player)).scalar() == 2
+
+
+def test_the_site_cleans_names_but_links_to_the_real_one():
+    from idlerpg import web
+    assert web.E("\u202e<b>x</b>") == "&lt;b&gt;x&lt;/b&gt;"
+    # The link keeps the name exactly, or it would open a different player.
+    assert web.link("\u202eprofit-on-irc") == "/player/%E2%80%AEprofit-on-irc"

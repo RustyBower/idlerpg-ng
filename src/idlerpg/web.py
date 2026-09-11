@@ -22,6 +22,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from .engine import MAP_X, MAP_Y
+from .text import duration, safe
 from .models import (
     EventLog, PenaltyRecord, Player, Quest, QuestParticipant, upgrade,
 )
@@ -146,20 +147,6 @@ def recent_events(limit=10):
         return []
 
 
-def duration(seconds):
-    seconds = max(0, int(seconds))
-    if seconds < 60:
-        return f"{seconds}s"
-    out, units = [], (("d", 86400), ("h", 3600), ("m", 60))
-    for suffix, size in units:
-        if seconds >= size:
-            out.append(f"{seconds // size}{suffix}")
-            seconds %= size
-        if len(out) == 2:
-            break
-    return " ".join(out)
-
-
 def ago(ts):
     """Render a timestamp. SQLAlchemy hands back datetimes; SQLite's are naive."""
     if not ts:
@@ -167,7 +154,15 @@ def ago(ts):
     return str(ts).split(".")[0].replace("T", " ")
 
 
-E = html.escape
+def E(value) -> str:
+    """Escape for HTML, and drop bidi overrides and IRC colour codes, so a
+    name or class that has them cannot flip or garble the page. Links are
+    built with link() instead, from the name exactly as stored."""
+    return html.escape(safe(str(value)))
+
+
+def link(name: str) -> str:
+    return "/player/" + quote(name, safe="")
 
 STYLE = """
 :root{--bg:#fbfaf8;--panel:#fff;--fg:#1c1b19;--muted:#6b6862;--line:#e3e0da;
@@ -199,7 +194,7 @@ th{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--mu
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 td.rank{color:var(--muted);width:2.5rem}
 tr.off td{color:var(--muted)}
-.who{font-weight:600}.who a{color:inherit;text-decoration:none}
+.who{font-weight:600;unicode-bidi:isolate}.who a{color:inherit;text-decoration:none}
 .who a:hover{color:var(--accent)}
 .dot{display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.5rem;vertical-align:middle}
 .dot.on{background:var(--on)}.dot.off{background:var(--off)}
@@ -435,7 +430,7 @@ def page_index(players):
         f'<tr class="{"on" if p["online"] else "off"}">'
         f'<td class="rank">{i}</td>'
         f'<td class="who"><span class="dot {"on" if p["online"] else "off"}"></span>'
-        f'<a href="/player/{E(p["username"])}">{E(p["username"])}</a></td>'
+        f'<a href="{link(p["username"])}">{E(p["username"])}</a></td>'
         f'<td class="num">{p["level"]}</td><td>{E(p["class"])}</td>'
         f'<td class="num">{E(duration(p["next"]))}</td>'
         f'<td class="num">{p["itemsum"]}</td>'
@@ -558,7 +553,7 @@ whole realm pays.</p></div>"""
         pos = f'({q["x"]}, {q["y"]})' if "x" in q else "&mdash;"
         lvl = p["level"] if p else "?"
         rows += (
-            f'<tr><td class="who"><a href="/player/{E(q["name"])}">{E(q["name"])}</a></td>'
+            f'<tr><td class="who"><a href="{link(q["name"])}">{E(q["name"])}</a></td>'
             f'<td class="num">{lvl}</td><td class="num">{pos}</td></tr>'
         )
     dests = "".join(
