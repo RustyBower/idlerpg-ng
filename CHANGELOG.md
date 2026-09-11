@@ -3,7 +3,7 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.18.0 - unreleased
+## 0.18.0 - 2026-09-11
 
 - **Meetings on the map.** Two characters from level 10 who land on the same
   tile fight, as in the original, on `FIGHT`'s terms - at most once a day for
