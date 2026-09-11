@@ -137,8 +137,15 @@ lines in. In Hallowtide (October), Midwinter (15 December to 6 January) and
 Springtide (20 March to 20 April) a third of them come from the season's own
 creatures, helpers, treasures and quests, and the realm is told when each
 begins and ends - the site says when the next one begins from two weeks
-ahead. Only the words change, never how often events happen or
-what they do. An admin's `SEASON` shows, forces or switches off the season.
+ahead. Each season also bends one rule a little, for everyone alike: trick
+or treat in Hallowtide (small treats or tricks, even odds), the long nights
+of Midwinter (everyone earns 5% faster), Springtide's fresh starts (anyone
+below the realm's middle level earns 10% faster). When a season that ran
+its course ends, the realm honours its three most devoted idlers - the most
+progress toward their next levels, so a newcomer can beat a veteran - and
+everyone who idled through half of it wears its badge (🎃 ❄ 🌱). NPCs are
+not honoured. An admin's `SEASON` shows, forces or switches off the season;
+a forced season honours nobody.
 Times read as durations throughout, like `3d 4h`.
 
 ## Running it

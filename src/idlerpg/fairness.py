@@ -66,6 +66,9 @@ class Rules:
     # Meetings need --walk, so characters move at the live pace.
     daily: bool = True
     meetings: bool = False
+    # A season kept throughout, to measure its twist against a realm
+    # without one: the season rule sets have no fights.
+    season: str | None = None
 
 
 MORAL = {"good": 1.1, "neutral": 1.0, "evil": 0.9}
@@ -102,6 +105,10 @@ RULES.update({
                       cap_by_winner=True, min_level=10),
     "fight+meetings": Rules("fight+meetings", meetings=True, transfer=True,
                             cap_by_winner=True, **{**_PROPOSED, "underdog_bonus": 1.0}),
+    # The seasons' twists, each against the same realm with no season.
+    "hallowtide": Rules("hallowtide", daily=False, season="Hallowtide"),
+    "midwinter": Rules("midwinter", daily=False, season="Midwinter"),
+    "springtide": Rules("springtide", daily=False, season="Springtide"),
 })
 
 # The live realm on 2026-09-11: nine people and five fresh NPCs, by level.
@@ -353,7 +360,8 @@ def _run(job: tuple) -> dict:
 
     results = simulate.run(roster, days=days, step=step, seed=seed,
                            habits=PROFILES["average"], curve=Curve(),
-                           levels=levels, hook=hook)
+                           levels=levels, hook=hook,
+                           season=RULES[rules_name].season if rules_name else None)
     players = []
     for i, r in enumerate(results):
         s = fights.stats[r.name] if fights else Counter()

@@ -193,9 +193,11 @@ ONWARD = ["then onward to", "and thence to", "then home by way of",
 @dataclass(frozen=True)
 class Season:
     """A stretch of the year when a third of the realm's events take on its
-    air: creatures, helpers, treasures and cargo of its own, and a few
-    hand-written lines. Only the words change - never how often events
-    happen or what they do."""
+    air - creatures, helpers, treasures and cargo of its own, and a few
+    hand-written lines - and one rule bends a little, for everyone alike:
+    ``pace`` speeds everyone's clock, ``catch_up`` speeds those below the
+    realm's middle level, ``tricks`` brings trick or treat. The honours for
+    keeping a season are in seasonal.py."""
 
     name: str
     start: tuple[int, int]          # (month, day), inclusive
@@ -209,6 +211,11 @@ class Season:
     godsends: tuple[str, ...]
     vigil_until: tuple[str, ...]
     taste: str = ""                 # what to expect, for the website
+    twist: str = ""                 # the rule it bends, in words
+    badge: str = ""                 # worn by those who kept it
+    pace: float = 1.0               # everyone's clock runs this much faster
+    catch_up: float = 1.0           # and theirs below the middle level, this much
+    tricks: bool = False            # trick or treat
 
     def covers(self, day) -> bool:
         md = (day.month, day.day)
@@ -246,6 +253,9 @@ SEASONS = [
         vigil_until=("until the last pumpkin candle gutters", "until the ghosts go home",
                      "until the harvest moon sets"),
         taste="headless horsemen, pumpkins with ambitions and trick-or-treating goblins",
+        twist="Trick or treat: now and then someone knocks on a door and is given a "
+              "treat or played a trick, even odds, worth a little of a level.",
+        badge="🎃", tricks=True,
     ),
     Season(
         "Midwinter", (12, 15), (1, 6),
@@ -272,6 +282,8 @@ SEASONS = [
         vigil_until=("through the longest night", "until the yule log burns down",
                      "until the first snow melts"),
         taste="snowmen with grudges, carolling geese and runaway gingerbread men",
+        twist="The long nights: everyone earns 5% faster.",
+        badge="❄", pace=1.05,
     ),
     Season(
         "Springtide", (3, 20), (4, 20),
@@ -298,6 +310,8 @@ SEASONS = [
         vigil_until=("until the blossom falls", "until the swallows return",
                      "until the frogs stop singing"),
         taste="hares in a hurry, nesting griffins and frog princes who are still frogs",
+        twist="Fresh starts: anyone below the realm's middle level earns 10% faster.",
+        badge="🌱", catch_up=1.10,
     ),
 ]
 
@@ -371,6 +385,9 @@ class Journey:
 
 def _near(rng: random.Random) -> str:
     return f"{rng.choice(NEAR)} {rng.choice(PLACES).name}"
+
+
+near = _near    # "just short of the Glass Mines", for events of other modules
 
 
 @dataclass

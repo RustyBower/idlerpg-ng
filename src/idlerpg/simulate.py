@@ -117,7 +117,7 @@ def _code(alignment: str) -> str:
 def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
         habits: Habits | None = None, start_level: int = 30,
         curve: Curve | None = None, levels: list[int] | None = None,
-        hook=None) -> list[Result]:
+        hook=None, season: str | None = None) -> list[Result]:
     """Simulate ``days`` of the realm and return how each player fared.
 
     ``levels`` gives each player of the roster its own start level, for a
@@ -141,9 +141,9 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
     # Real hashing is deliberately slow; nothing here is a real password.
     real_hash = engine_module.hash_password
     engine_module.hash_password = partial(auth.hash_password, iterations=1)
-    # Seasons change only words, but they draw on the luck too: keep them
-    # off, so a run gives the same answer in October as in May.
-    real_season, lore.SEASON_OVERRIDE = lore.SEASON_OVERRIDE, "off"
+    # Seasons draw on the luck and bend a rule: off unless a run asks for one,
+    # so it gives the same answer in October as in May.
+    real_season, lore.SEASON_OVERRIDE = lore.SEASON_OVERRIDE, season or "off"
     try:
         players, seen = [], Counter()
         for alignment, start in zip(roster, levels):

@@ -116,6 +116,7 @@ class Player(Base):
     items: Mapped[list["Item"]] = relationship(
         back_populates="player", cascade="all, delete-orphan"
     )
+    achievements: Mapped[list["Achievement"]] = relationship(cascade="all, delete-orphan")
 
     @property
     def is_idling(self) -> bool:
@@ -249,6 +250,33 @@ class QuestParticipant(Base):
 
     quest: Mapped[Quest] = relationship(back_populates="participants")
     player: Mapped[Player] = relationship()
+
+
+class Achievement(Base):
+    """An honour a character has earned - for now, a season's. See seasonal.py."""
+
+    __tablename__ = "achievement"
+    __table_args__ = (UniqueConstraint("player_id", "key", name="uq_achievement"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id", ondelete="CASCADE"))
+    key: Mapped[str] = mapped_column(String(64))       # "Hallowtide 2026:1", ":kept"
+    badge: Mapped[str] = mapped_column(String(16))
+    title: Mapped[str] = mapped_column(String(128))
+    earned: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SeasonMark(Base):
+    """Where a character stood as a season began, to measure what they made
+    of it. Cleared when the season ends."""
+
+    __tablename__ = "season_mark"
+    __table_args__ = (UniqueConstraint("season", "player_id", name="uq_season_mark"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    season: Mapped[str] = mapped_column(String(64))
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id", ondelete="CASCADE"))
+    progress: Mapped[int] = mapped_column(BigInteger, default=0)
 
 
 class Setting(Base):

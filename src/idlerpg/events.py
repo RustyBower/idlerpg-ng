@@ -14,7 +14,7 @@ import math
 import random
 from dataclasses import dataclass
 
-from .lore import LORE, heartland
+from .lore import LORE, heartland, near
 from .rules import ttl
 from .text import duration
 
@@ -27,6 +27,11 @@ CALAMITY_INTERVAL = 8 * DAY
 GODSEND_INTERVAL = 4 * DAY
 # Not per-player: the realm gets one of these on its own schedule.
 WAR_INTERVAL = 10 * DAY
+# Hallowtide's trick or treat, per online player, and at most this share of
+# a level's cost either way: sized by the level, not the clock, so it stays
+# small at the level-60 wall.
+TRICK_INTERVAL = 3 * DAY
+TRICK_SHARE = 0.05
 
 # Item slots, with the wording the original announces them by.
 SLOTS = {
@@ -229,6 +234,19 @@ def godsend(player, rng: random.Random) -> Outcome:
         f"closer to level {player.level + 1}.",
         kind="godsend",
     )
+
+
+def trick_or_treat(player, rng: random.Random, curve) -> Outcome:
+    """Hallowtide: a knock on a door, and even odds of a treat or a trick."""
+    amount = 1 + int(level_cost(player, player.level, curve) * TRICK_SHARE * rng.random())
+    where = near(rng)
+    if rng.randrange(2):
+        player.next_ttl = max(1, player.next_ttl - amount)
+        return Outcome(f"{player.name} knocked on a door {where} and was given a treat: "
+                       f"{duration(amount)} off their clock.", kind="season")
+    player.next_ttl += amount
+    return Outcome(f"{player.name} knocked on a door {where} and was played a trick: "
+                   f"{duration(amount)} on their clock.", kind="season")
 
 
 def item_sum(player) -> int:

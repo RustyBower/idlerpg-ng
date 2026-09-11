@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import statistics
 import time
 from dataclasses import dataclass
 
@@ -33,7 +34,7 @@ from .models import (
     Presence,
     utcnow,
 )
-from . import events, fights, lore, npcs, quests
+from . import events, fights, lore, npcs, quests, seasonal
 from .events import Outcome
 from .rules import Curve, Penalty, penalty_seconds, ttl
 
@@ -339,8 +340,9 @@ class Engine:
         announcements.extend(self._season_news())
         online = [p for p in players if p.is_idling]
 
+        pace = self._season_pace(online)
         for player in online:
-            remaining = player.next_ttl - elapsed_seconds
+            remaining = player.next_ttl - elapsed_seconds * pace.get(player.id, 1.0)
             while remaining <= 0:
                 player.level += 1
                 remaining += int(events.level_cost(player, player.level, self.curve))
@@ -388,9 +390,27 @@ class Engine:
             return []
         ended, self._season_seen = self._season_seen, name
         self.set_setting(self.SEASON_SEEN_KEY, name)
+        out: list[Outcome] = []
+        if ended:
+            if season is None:
+                out.append(Outcome(f"{ended} is over, and the realm is itself again.",
+                                   kind="season"))
+            out.extend(seasonal.end(self, ended))
         if season is not None:
-            return [Outcome(season.arrives, kind="season")]
-        return [Outcome(f"{ended} is over, and the realm is itself again.", kind="season")]
+            seasonal.begin(self, season)
+            out.append(Outcome(season.arrives, kind="season"))
+        return out
+
+    def _season_pace(self, online: list[Player]) -> dict[int, float]:
+        """A season's twist on how fast time counts: Midwinter's long nights
+        for everyone, Springtide's fresh starts for those below the middle
+        level of those about."""
+        season = lore.current_season()
+        if season is None or not online or (season.pace == 1 and season.catch_up == 1):
+            return {}
+        middle = statistics.median(p.level for p in online)
+        return {p.id: season.pace * (season.catch_up if p.level < middle else 1.0)
+                for p in online}
 
     def _world_events(self, online: list[Player],
                       elapsed: float) -> list[Outcome]:
@@ -406,6 +426,10 @@ class Engine:
             out.append(events.calamity(self.rng.choice(online), self.rng))
         if events.should_fire(events.GODSEND_INTERVAL, elapsed, count, self.rng):
             out.append(events.godsend(self.rng.choice(online), self.rng))
+        season = lore.current_season()
+        if (season is not None and season.tricks
+                and events.should_fire(events.TRICK_INTERVAL, elapsed, count, self.rng)):
+            out.append(events.trick_or_treat(self.rng.choice(online), self.rng, self.curve))
 
         if events.should_fire(events.TEAM_BATTLE_INTERVAL, elapsed, count, self.rng):
             out.extend(events.team_battle(

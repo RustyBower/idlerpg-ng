@@ -27,7 +27,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 
-from .. import __version__, admin, fights, prestige
+from .. import __version__, admin, fights, prestige, seasonal
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
@@ -520,7 +520,7 @@ class IRCAdapter:
                 nick,
                 f"{player.name}, level {player.level} {player.character_class}, "
                 f"next level in {duration(player.next_ttl)}, "
-                f"alignment {player.alignment_name}.",
+                f"alignment {player.alignment_name}.{seasonal.honours_text(player)}",
             )
         elif verb in fights.VERBS:
             self.notice_lines(

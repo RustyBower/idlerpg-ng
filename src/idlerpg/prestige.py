@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import events, quests
+from . import events, quests, seasonal
 from .events import Outcome
 from .models import Player
 
@@ -79,6 +79,8 @@ def start_over(engine, player: Player) -> str:
         return _preview(player)
     # Dropping to level 0 leaves any quest, which fails it as leaving would.
     engine._pending.extend(quests.fail(engine.session, player, engine.curve))
+    # What they made of a season so far is theirs to keep through the reset.
+    seasonal.carry(engine, player)
     earned = points_for(player.level)
     kept = sorted(player.items, key=lambda i: -i.value)[:player.perk_rank("heirloom")]
     for item in player.items:

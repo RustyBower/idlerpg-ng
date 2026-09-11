@@ -3,8 +3,18 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.19.1 - unreleased
+## 0.20.0 - unreleased
 
+- **Seasons bend a rule.** Hallowtide brings trick or treat - now and then a
+  small treat or trick, even odds, worth up to 5% of a level. Midwinter's long
+  nights have everyone earning 5% faster. In Springtide's fresh starts, anyone
+  below the middle level of those about earns 10% faster.
+- **Seasonal honours.** When a season that ran its course ends, the realm
+  names its three most devoted idlers - the most progress toward their next
+  levels, so a newcomer can beat a veteran - and everyone who idled through
+  half of it wears its badge, 🎃 ❄ 🌱, beside their name on the site. `WHOAMI`
+  lists a character's honours. NPCs are not honoured, a prestige keeps what
+  a season gave, and a season an admin forced honours nobody.
 - The site says when the next season begins, from two weeks before it, and
   what it brings: "Hallowtide begins on 1 October: until 31 October, a third
   of the realm's calamities, godsends and quests will come with headless

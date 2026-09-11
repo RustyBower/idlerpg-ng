@@ -27,6 +27,7 @@ from . import __version__
 from .config import post_cap_step
 from .engine import MAP_X, MAP_Y
 from .lore import SEASONS, dates, heartland, season_named, season_on, today, upcoming
+from .seasonal import best as seasonal_best
 from .rules import Curve, seconds_to_reach, ttl
 from .text import duration, safe
 from .models import (
@@ -60,8 +61,14 @@ def db():
     if _engine is None:
         engine = create_engine(DATABASE_URL, pool_pre_ping=True, future=True)
         # The site reads whole identity rows, so a column the bot's models
-        # know and the database does not yet have would break every page.
-        # Either may start first; both bring the schema up to date.
+        # know and the database does not yet have would break every page -
+        # and a table, for the standings' honours. Either may start first;
+        # both bring the schema up to date.
+        from .models import Base
+        try:
+            Base.metadata.create_all(engine)
+        except Exception:
+            pass    # the bot, starting at the same moment, made them first
         upgrade(engine)
         _engine = engine
     return _engine
@@ -79,7 +86,8 @@ def load_players():
         with Session(db()) as s:
             rows = s.scalars(
                 select(Player).options(
-                    selectinload(Player.identities), selectinload(Player.items)
+                    selectinload(Player.identities), selectinload(Player.items),
+                    selectinload(Player.achievements),
                 )
             ).all()
             penalties = {}
@@ -103,6 +111,9 @@ def load_players():
                     "nick": nick,
                     "online": any(plats.values()) or p.npc == "present",
                     "npc": bool(p.npc),
+                    "honours": [{"badge": a.badge, "title": a.title,
+                                 "won": not a.key.endswith(":kept")}
+                                for a in seasonal_best(p.achievements)],
                     "x": p.x or 0, "y": p.y or 0,
                     "created": p.created, "lastlogin": p.last_login,
                     "alignment": p.alignment_name.title(),
@@ -260,6 +271,8 @@ padding:.1rem .42rem;border-radius:4px;margin-right:.3rem;border:1px solid var(-
 .plat.npc{font-style:italic}
 .season{border-left:3px solid var(--accent);background:var(--soft);padding:.5rem .9rem;margin:1rem 0}
 .season.soon{border-left-style:dashed;background:none;color:var(--muted)}
+.honour{margin-left:.3rem;font-size:.9em;cursor:help}
+.honour.won{text-shadow:0 0 6px gold}
 .heartland{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:10 8;opacity:.45}
 .plat.idle{opacity:.45}
 .plat.none{opacity:.4;border:none}
@@ -473,30 +486,42 @@ def season_banner() -> str:
     if season is not None:
         return (f'<p class="season">{E(season.arrives)} Until {E(dates(season)[1])}, '
                 f'a third of the realm&#39;s calamities, godsends and quests come with '
-                f'{E(season.taste)}.</p>')
+                f'{E(season.taste)}. {E(season.twist)} Idle through half of it to wear '
+                f'{E(season.badge)}.</p>')
     soon = upcoming(today())
     if soon is not None:
         coming, begins = soon
         return (f'<p class="season soon">{E(coming.name)} begins on {E(begins)}: until '
                 f'{E(dates(coming)[1])}, a third of the realm&#39;s calamities, godsends '
-                f'and quests will come with {E(coming.taste)}.</p>')
+                f'and quests will come with {E(coming.taste)}. {E(coming.twist)}</p>')
     return ""
 
 
 def seasons_section() -> str:
     """For the how-to-play page: what seasons are, and when each falls."""
     rows = "".join(
-        f'<tr><td>{E(s.name)}</td><td>{E(" to ".join(dates(s)))}</td>'
-        f'<td>{E(s.taste)}</td></tr>'
+        f'<tr><td>{E(s.badge)} {E(s.name)}</td><td>{E(" to ".join(dates(s)))}</td>'
+        f'<td>{E(s.taste)}</td><td>{E(s.twist)}</td></tr>'
         for s in SEASONS)
     return f"""<h2>Seasons</h2>
 <p class="muted">Three times a year the realm keeps a season. While it lasts, a third of the
 calamities, godsends and quests draw on its own creatures, helpers, treasures and errands,
-and the realm is told as each begins and ends. Only the words change: how often things
-happen, and what they do to your clock, stay the same.</p>
-<table><thead><tr><th>Season</th><th>When</th><th>Expect</th></tr></thead>
+and each season bends one rule a little, for everyone alike. When a season ends, the realm
+honours its three most devoted idlers - those who made the most progress toward their next
+levels, so a newcomer can beat a veteran - and everyone who idled through at least half of
+it wears the season's badge beside their name.</p>
+<table><thead><tr><th>Season</th><th>When</th><th>Expect</th><th>Twist</th></tr></thead>
 <tbody>{rows}</tbody></table>
 """
+
+
+def honours(p) -> str:
+    """A season's badge for each season kept - gold for its three most
+    devoted - with the title on hover."""
+    return "".join(
+        f'<span class="honour{" won" if h["won"] else ""}" title="{E(h["title"])}">'
+        f'{E(h["badge"])}</span>'
+        for h in p.get("honours", []))
 
 
 def star(p) -> str:
@@ -515,7 +540,7 @@ def page_index(players):
         f'<tr class="{"on" if p["online"] else "off"}">'
         f'<td class="rank">{i}</td>'
         f'<td class="who"><span class="dot {"on" if p["online"] else "off"}"></span>'
-        f'<a href="{link(p["username"])}">{E(p["username"])}</a>{star(p)}</td>'
+        f'<a href="{link(p["username"])}">{E(p["username"])}</a>{star(p)}{honours(p)}</td>'
         f'<td class="num">{p["level"]}</td><td>{E(p["class"])}</td>'
         f'<td class="num">{E(duration(p["next"]))}</td>'
         f'<td class="num">{p["itemsum"]}</td>'

@@ -21,7 +21,7 @@ import logging
 
 import discord
 
-from .. import admin, fights, prestige
+from .. import admin, fights, prestige, seasonal
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
@@ -580,7 +580,7 @@ class DiscordAdapter(discord.Client):
             await reply(
                 f"{player.name}, level {player.level} {player.character_class}, "
                 f"next level in {duration(player.next_ttl)}, "
-                f"alignment {player.alignment_name}."
+                f"alignment {player.alignment_name}.{seasonal.honours_text(player)}"
             )
         elif verb.upper() in fights.VERBS:
             await reply(fights.command(
