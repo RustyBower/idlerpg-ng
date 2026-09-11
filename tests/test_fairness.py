@@ -111,6 +111,16 @@ class TestTheRules:
                                                               moral="good")) == 100
 
 
+class TestCalm:
+    def test_it_silences_the_clock_share_events_and_restores_them(self):
+        from idlerpg import events, quests
+        before = (events.GODSEND_INTERVAL, events.will_fight, quests.COOLDOWN)
+        with fairness.calm():
+            assert events.GODSEND_INTERVAL > 1e15
+            assert events.will_fight(None, None) is False
+        assert (events.GODSEND_INTERVAL, events.will_fight, quests.COOLDOWN) == before
+
+
 class TestTheHarness:
     def test_strategies_rotate_in_mixed(self):
         a = fairness.assign("mixed", fairness.REALM, seed=1)

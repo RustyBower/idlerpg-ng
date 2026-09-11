@@ -22,9 +22,11 @@ import random
 import statistics
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 
-from . import events, simulate
+from . import events, quests, simulate
 from .npcs import PROFILES
 from .rules import Curve
 
@@ -292,11 +294,43 @@ class Walk:
                         self.fights.clash(a, b, elapsed + sub * SUBSTEP)
 
 
+# The realm's events that act on a share of the clock, silenced by --calm.
+_CALM = ("HOG_INTERVAL", "CALAMITY_INTERVAL", "GODSEND_INTERVAL", "TEAM_BATTLE_INTERVAL",
+         "WAR_INTERVAL", "GOODNESS_INTERVAL", "EVILNESS_INTERVAL", "CHAOS_INTERVAL",
+         "BALANCE_INTERVAL")
+
+
+@contextmanager
+def calm():
+    """A realm without the events that move a share of the clock - battles,
+    godsends, calamities, the Hand of God, war, quests - so what fights do
+    can be told apart from what those events then make of it."""
+    saved = {name: getattr(events, name) for name in _CALM}
+    will_fight, cooldown = events.will_fight, quests.COOLDOWN
+    for name in _CALM:
+        setattr(events, name, 1e18)
+    events.will_fight = lambda challenger, rng: False
+    quests.COOLDOWN = timedelta(days=10**6)
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            setattr(events, name, value)
+        events.will_fight, quests.COOLDOWN = will_fight, cooldown
+
+
 def _one(job: tuple) -> dict:
+    if len(job) > 7 and job[7]:
+        with calm():
+            return _run(job)
+    return _run(job)
+
+
+def _run(job: tuple) -> dict:
     """One seeded realm, in a worker: with FIGHT under a rule set, or none."""
     scenario, rules_name, seed, days, step, *rest = job
     levels = rest[0] if rest else REALM
-    walk = rest[1] if len(rest) > 1 else False
+    walk = rest[1] if len(rest) > 1 else False     # rest[2], calm, is _one's
     strategies = assign(scenario, levels, seed)
     fights = Fights(RULES[rules_name], strategies, seed) if rules_name else None
     walker = (Walk(seed, fights if fights is not None and fights.rules.meetings else None)
@@ -415,6 +449,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--walk", action="store_true",
                         help="move characters a step every 5 seconds, as live, "
                              "rather than once a tick; meetings need it")
+    parser.add_argument("--calm", action="store_true",
+                        help="silence the events that move a share of the clock "
+                             "(battles, godsends, calamities, war, quests...)")
     args = parser.parse_args(argv)
 
     rules = [r.strip() for r in args.rules.split(",") if r.strip()]
@@ -428,9 +465,9 @@ def main(argv: list[str] | None = None) -> int:
     seeds = range(1, args.seeds + 1)
     # The control - no fights - is the same whatever the strategies, but the
     # champions' perks change the realm itself, so they get their own.
-    work = [(base, "", seed, args.days, args.step, levels, args.walk)
+    work = [(base, "", seed, args.days, args.step, levels, args.walk, args.calm)
             for base in sorted({_baseline(s) for s in scenarios}) for seed in seeds]
-    work += [(s, r, seed, args.days, args.step, levels, args.walk)
+    work += [(s, r, seed, args.days, args.step, levels, args.walk, args.calm)
              for s in scenarios for r in rules for seed in seeds]
     if args.jobs <= 1:
         runs = [_one(job) for job in work]
@@ -439,7 +476,8 @@ def main(argv: list[str] | None = None) -> int:
             runs = list(pool.map(_one, work))
     print(f"{len(levels)} players at levels {levels}, {args.days:g} days, "
           f"{args.seeds} seeds, {args.step // 60}m ticks"
-          + (", walking at the live pace." if args.walk else "."))
+          + (", walking at the live pace" if args.walk else "")
+          + (", with the clock-share events silenced." if args.calm else "."))
     print(report(runs, args.days, levels))
     return 0
 
