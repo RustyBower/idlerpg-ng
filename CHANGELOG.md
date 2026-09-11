@@ -3,6 +3,17 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.19.0 - unreleased
+
+- **Seasons.** In Hallowtide (October), Midwinter (15 December to 6 January)
+  and Springtide (20 March to 20 April) a third of the realm's calamities,
+  godsends and quests come from the season's own creatures, helpers,
+  treasures and cargo. The realm is told when each begins and ends, and the
+  site shows a banner while one lasts. Only the words change: how often
+  events happen and what they do stay the same.
+- Admins: `SEASON` shows the season; `SEASON <name>` forces one, `auto`
+  follows the calendar, `off` has none.
+
 ## 0.18.0 - 2026-09-11
 
 - **Meetings on the map.** Two characters from level 10 who land on the same

@@ -33,7 +33,7 @@ from .models import (
     Presence,
     utcnow,
 )
-from . import events, fights, npcs, quests
+from . import events, fights, lore, npcs, quests
 from .events import Outcome
 from .rules import Curve, Penalty, penalty_seconds, ttl
 
@@ -97,6 +97,8 @@ ALIGNMENT_HELP = (
 class Engine:
     # Settings an admin can change, kept in the database so a restart keeps them.
     PAUSED_KEY, SILENT_KEY, TOPIC_KEY = "paused", "silent", "topic_note"
+    # An admin's SEASON choice, and the last season the realm was told of.
+    SEASON_KEY, SEASON_SEEN_KEY = "season", "season_seen"
 
     def __init__(self, session: Session, curve: Curve | None = None,
                  rng: random.Random | None = None):
@@ -120,6 +122,8 @@ class Engine:
         # Pairs who met on the map, and when they may fight again. Kept in
         # memory: a restart can at worst let one pair meet twice in a day.
         self.met: dict[tuple[int, int], int] = {}
+        # Loaded on the first tick: None until then, "" for no season.
+        self._season_seen: str | None = None
 
     # ---------------------------------------------------------------- players
 
@@ -332,6 +336,7 @@ class Engine:
 
         announcements: list[Outcome] = list(self._pending)
         self._pending.clear()
+        announcements.extend(self._season_news())
         online = [p for p in players if p.is_idling]
 
         for player in online:
@@ -368,6 +373,24 @@ class Engine:
             self.log_event(outcome.kind, outcome.message, commit=False)
         self.session.commit()
         return announcements
+
+    def _season_news(self) -> list[Outcome]:
+        """Tell the realm when a season begins and ends, once each - kept in
+        the database, so a restart does not tell it twice."""
+        if self._season_seen is None:
+            stored = self.get_setting(self.SEASON_KEY)
+            if stored:
+                lore.SEASON_OVERRIDE = stored
+            self._season_seen = self.get_setting(self.SEASON_SEEN_KEY) or ""
+        season = lore.current_season()
+        name = season.name if season else ""
+        if name == self._season_seen:
+            return []
+        ended, self._season_seen = self._season_seen, name
+        self.set_setting(self.SEASON_SEEN_KEY, name)
+        if season is not None:
+            return [Outcome(season.arrives, kind="season")]
+        return [Outcome(f"{ended} is over, and the realm is itself again.", kind="season")]
 
     def _world_events(self, online: list[Player],
                       elapsed: float) -> list[Outcome]:

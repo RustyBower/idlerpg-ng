@@ -21,7 +21,7 @@ import time
 from collections import Counter
 from datetime import timedelta, timezone
 
-from . import __version__, events, quests
+from . import __version__, events, lore, quests
 from .engine import Engine, RegistrationError, events_map_x, events_map_y
 from .models import Player, utcnow
 from .text import duration
@@ -36,6 +36,7 @@ HELP = (
     " | CHCLASS <name> <class> | PUSH <name> <seconds> (toward the next level;"
     " negative pushes back) | MOVE <name> <x> <y> | HOG [name]"
     " | PIT <name> <name> | EVENT <" + "|".join(EVENT_KINDS) + "> [name]"
+    " | SEASON [" + "|".join(s.name.lower() for s in lore.SEASONS) + "|auto|off]"
 )
 
 
@@ -131,6 +132,32 @@ def _topic(engine, actor, args):
         engine.set_setting(engine.TOPIC_KEY, " ".join(args)[:200])
     engine.topic_requested = True
     return "The topic will be set at the next tick."
+
+
+def _season(engine, actor, args):
+    """SEASON shows the season; SEASON <name> forces one, auto follows the
+    calendar again, off has none. The realm is told at the next tick."""
+    if args:
+        choice = args[0].lower()
+        if choice == "auto":
+            engine.set_setting(engine.SEASON_KEY, "")
+            lore.SEASON_OVERRIDE = None
+        elif choice == "off":
+            engine.set_setting(engine.SEASON_KEY, "off")
+            lore.SEASON_OVERRIDE = "off"
+        else:
+            season = lore.season_named(choice)
+            if season is None:
+                raise Refused("SEASON [" + "|".join(s.name.lower() for s in lore.SEASONS)
+                              + "|auto|off]")
+            engine.set_setting(engine.SEASON_KEY, season.name)
+            lore.SEASON_OVERRIDE = season.name
+    how = {None: "by the calendar", "off": "switched off"}.get(lore.SEASON_OVERRIDE, "forced")
+    season = lore.current_season()
+    if season is not None:
+        return f"It is {season.name} ({how})."
+    upcoming, begins = lore.next_season()
+    return f"No season now ({how}). {upcoming.name} begins on {begins}."
 
 
 def _restart(engine, actor, args):
@@ -272,7 +299,7 @@ COMMANDS = {
     "TOPIC": _topic, "RESTART": _restart, "DEL": _del, "DELOLD": _delold,
     "MKADMIN": _mkadmin, "DELADMIN": _deladmin, "CHPASS": _chpass,
     "CHUSER": _chuser, "CHCLASS": _chclass, "PUSH": _push, "MOVE": _move,
-    "HOG": _hog, "PIT": _pit, "EVENT": _event,
+    "HOG": _hog, "PIT": _pit, "EVENT": _event, "SEASON": _season,
 }
 VERBS = frozenset(COMMANDS)
 

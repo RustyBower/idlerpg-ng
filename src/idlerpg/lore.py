@@ -191,6 +191,155 @@ ONWARD = ["then onward to", "and thence to", "then home by way of",
 
 
 @dataclass(frozen=True)
+class Season:
+    """A stretch of the year when a third of the realm's events take on its
+    air: creatures, helpers, treasures and cargo of its own, and a few
+    hand-written lines. Only the words change - never how often events
+    happen or what they do."""
+
+    name: str
+    start: tuple[int, int]          # (month, day), inclusive
+    end: tuple[int, int]            # inclusive; may run past New Year
+    arrives: str                    # told to the realm as it begins
+    creatures: tuple[str, ...]
+    helpers: tuple[str, ...]
+    treasures: tuple[str, ...]
+    cargo: tuple[str, ...]
+    calamities: tuple[str, ...]
+    godsends: tuple[str, ...]
+    vigil_until: tuple[str, ...]
+
+    def covers(self, day) -> bool:
+        md = (day.month, day.day)
+        if self.start <= self.end:
+            return self.start <= md <= self.end
+        return md >= self.start or md <= self.end
+
+
+SEASONS = [
+    Season(
+        "Hallowtide", (10, 1), (10, 31),
+        "Hallowtide falls on the realm: the pumpkins are watching, and the roads "
+        "are stranger than usual.",
+        creatures=("a headless horseman who keeps losing his way", "a pumpkin with ambitions",
+                   "a witch whose broom has opinions", "a skeleton in a borrowed cloak",
+                   "a ghost who insists it is not a ghost",
+                   "a scarecrow that moves when nobody is looking",
+                   "a werewolf between shifts", "a cauldron that follows people",
+                   "a band of trick-or-treating goblins", "a bat who wants to be a bird"),
+        helpers=("a kindly witch", "a ghost with a lantern", "a black cat crossing the right way",
+                 "a pumpkin-cart driver", "a skeleton who knows the back roads"),
+        treasures=("a lantern that will not go out", "a sack of sweets that never empties",
+                   "a broom that flies low but true", "a candle that burns backwards",
+                   "a map drawn on a bat's wing"),
+        cargo=("deliver a sack of sweets", "carry a pumpkin that must not be dropped",
+               "escort a nervous ghost home", "return a witch's borrowed broom",
+               "bear a lantern that must stay lit"),
+        calamities=("carved the wrong face into a pumpkin, and it objected",
+                    "was turned into a newt, briefly",
+                    "followed a will-o'-the-wisp into a bog",
+                    "ate a toffee apple that bit back"),
+        godsends=("rode a borrowed broom most of the way",
+                  "was led through the fog by a helpful jack-o'-lantern",
+                  "traded a riddle with a ghost for a shortcut"),
+        vigil_until=("until the last pumpkin candle gutters", "until the ghosts go home",
+                     "until the harvest moon sets"),
+    ),
+    Season(
+        "Midwinter", (12, 15), (1, 6),
+        "Midwinter comes: the nights are long, the snow is deep, and something in "
+        "the woods is carolling.",
+        creatures=("a snowman with a grudge", "a yule goat of great solemnity",
+                   "a frost giant who hates carols", "a flock of carolling geese",
+                   "a gingerbread man who will not be caught", "an ice troll with cold feet",
+                   "a sleigh with nobody driving it"),
+        helpers=("a reindeer who knows the way", "a merry innkeeper",
+                 "a gift-giver in a red hood", "a sled team going their way", "a snowy owl"),
+        treasures=("a scarf that is always warm", "a sled that steers itself",
+                   "a jar of bottled summer", "a candle for the longest night",
+                   "a mug of cocoa that never cools"),
+        cargo=("deliver the last parcel of the year", "carry a yule log that must stay lit",
+               "escort a lost reindeer", "bring a sack of wrapped surprises",
+               "bear a star for the top of the Great Tree"),
+        calamities=("was flattened by a snowball the size of a cottage",
+                    "licked a frozen signpost", "was carolled at until they surrendered",
+                    "slipped on the ice outside the Lantern Market"),
+        godsends=("slid downhill all the way on a tea tray",
+                  "was given a lift by a sleigh going their way",
+                  "found a warm hearth, and a shortcut behind it"),
+        vigil_until=("through the longest night", "until the yule log burns down",
+                     "until the first snow melts"),
+    ),
+    Season(
+        "Springtide", (3, 20), (4, 20),
+        "Springtide: the thaw has come, the roads are muddy, and everything is "
+        "hatching.",
+        creatures=("a hare in a hurry", "a lamb of surprising strength", "a nesting griffin",
+                   "a frog prince, still a frog", "bees with somewhere to be",
+                   "a mud troll just woken", "a cuckoo who moved into their pack"),
+        helpers=("a hare who knows a shortcut", "a gardener with seeds to spare",
+                 "a returning swallow", "a maypole dancer", "a farmer's cart going their way"),
+        treasures=("an egg that hatched a map", "a seed that grows a bridge",
+                   "a basket of fresh starts", "a boot that never gets muddy",
+                   "a flower that points north"),
+        cargo=("carry a basket of painted eggs", "escort a lost lamb home",
+               "deliver the first flowers of the year",
+               "bring a seed for the Orchard of Echoes", "return a borrowed rainbow"),
+        calamities=("sank to the knees in spring mud",
+                    "was caught in the first shower of the year without a cloak",
+                    "was pecked by a nesting goose",
+                    "sneezed at the blossom for an entire afternoon"),
+        godsends=("caught the spring breeze at their back",
+                  "followed a hare along a road nobody else knew",
+                  "found the thaw had opened a river road"),
+        vigil_until=("until the blossom falls", "until the swallows return",
+                     "until the frogs stop singing"),
+    ),
+]
+
+SEASON_SHARE = 1 / 3        # of events, drawn from the season's own lists
+# A season's name, "off", or None to follow the calendar. Set from an admin's
+# SEASON command; the simulator and the tests turn it off.
+SEASON_OVERRIDE: str | None = None
+
+
+def today():
+    import datetime as dt
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
+def season_named(name) -> Season | None:
+    return next((s for s in SEASONS if s.name.lower() == (name or "").lower()), None)
+
+
+def season_on(day) -> Season | None:
+    return next((s for s in SEASONS if s.covers(day)), None)
+
+
+def current_season(day=None) -> Season | None:
+    if SEASON_OVERRIDE == "off":
+        return None
+    if SEASON_OVERRIDE:
+        return season_named(SEASON_OVERRIDE)
+    return season_on(day or today())
+
+
+def next_season(day=None) -> tuple[Season, str]:
+    """The next season by the calendar, and the day it begins, as "1 October"."""
+    import calendar
+    import datetime as dt
+    day = day or today()
+
+    def begins(season):
+        start = dt.date(day.year, *season.start)
+        return start if start > day else dt.date(day.year + 1, *season.start)
+
+    season = min(SEASONS, key=begins)
+    start = begins(season)
+    return season, f"{start.day} {calendar.month_name[start.month]}"
+
+
+@dataclass(frozen=True)
 class Journey:
     text: str
     first: tuple[int, int]
@@ -215,6 +364,11 @@ class Lore:
         return bool(pool) and rng.random() < HANDWRITTEN_SHARE
 
     def calamity(self, rng: random.Random) -> str:
+        season = current_season()
+        if season is not None and rng.random() < SEASON_SHARE:
+            if rng.randrange(2):
+                return rng.choice(season.calamities)
+            return f"was {rng.choice(MISHAPS)} by {rng.choice(season.creatures)} {_near(rng)}"
         if self._handwritten(self.calamities, rng):
             return rng.choice(self.calamities)
         if rng.randrange(2):
@@ -222,6 +376,14 @@ class Lore:
         return f"{rng.choice(BLUNDERS)} {_near(rng)}"
 
     def godsend(self, rng: random.Random) -> str:
+        season = current_season()
+        if season is not None and rng.random() < SEASON_SHARE:
+            roll = rng.randrange(3)
+            if roll == 0:
+                return rng.choice(season.godsends)
+            if roll == 1:
+                return f"was {rng.choice(HELPS)} by {rng.choice(season.helpers)} {_near(rng)}"
+            return f"found {rng.choice(season.treasures)} {_near(rng)}"
         if self._handwritten(self.godsends, rng):
             return rng.choice(self.godsends)
         if rng.randrange(2):
@@ -229,12 +391,23 @@ class Lore:
         return f"found {rng.choice(TREASURES)} {_near(rng)}"
 
     def vigil(self, rng: random.Random) -> str:
+        season = current_season()
+        if season is not None and rng.random() < SEASON_SHARE:
+            return (f"{rng.choice(VIGIL_ACTS)} at {rng.choice(PLACES).name} "
+                    f"{rng.choice(season.vigil_until)}")
         if self._handwritten(self.vigils, rng):
             return rng.choice(self.vigils)
         return (f"{rng.choice(VIGIL_ACTS)} at {rng.choice(PLACES).name} "
                 f"{rng.choice(VIGIL_UNTIL)}")
 
     def journey(self, rng: random.Random) -> Journey:
+        season = current_season()
+        if season is not None and rng.random() < SEASON_SHARE:
+            start, end = rng.sample(PLACES, 2)
+            return Journey(
+                f"{rng.choice(season.cargo)} to {start.name}, {rng.choice(ONWARD)} {end.name}",
+                start.at, end.at,
+            )
         if self._handwritten(self.journeys, rng):
             return rng.choice(self.journeys)
         start, end = rng.sample(PLACES, 2)

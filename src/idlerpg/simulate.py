@@ -32,7 +32,7 @@ from functools import partial
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from . import auth, events
+from . import auth, events, lore
 from . import engine as engine_module
 from .engine import Engine
 from .models import Base, EventLog, PenaltyRecord, Platform, Presence
@@ -141,6 +141,9 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
     # Real hashing is deliberately slow; nothing here is a real password.
     real_hash = engine_module.hash_password
     engine_module.hash_password = partial(auth.hash_password, iterations=1)
+    # Seasons change only words, but they draw on the luck too: keep them
+    # off, so a run gives the same answer in October as in May.
+    real_season, lore.SEASON_OVERRIDE = lore.SEASON_OVERRIDE, "off"
     try:
         players, seen = [], Counter()
         for alignment, start in zip(roster, levels):
@@ -209,6 +212,7 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
         return results
     finally:
         engine_module.hash_password = real_hash
+        lore.SEASON_OVERRIDE = real_season
         session.close()
 
 

@@ -133,7 +133,12 @@ map, a cast of creatures and helpers, and small grammars that make tens of
 thousands of distinct calamities, godsends and quests, mixed with hand-written
 ones. The classic IdleRPG `events.txt` is not bundled - its licence forbids
 redistributing it - but `EVENTS_FILE` can point at your own copy to mix its
-lines in. Times read as durations throughout, like `3d 4h`.
+lines in. In Hallowtide (October), Midwinter (15 December to 6 January) and
+Springtide (20 March to 20 April) a third of them come from the season's own
+creatures, helpers, treasures and quests, and the realm is told when each
+begins and ends; only the words change, never how often events happen or
+what they do. An admin's `SEASON` shows, forces or switches off the season.
+Times read as durations throughout, like `3d 4h`.
 
 ## Running it
 

@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session, selectinload
 from . import __version__
 from .config import post_cap_step
 from .engine import MAP_X, MAP_Y
-from .lore import heartland
+from .lore import heartland, season_named, season_on, today
 from .rules import Curve, seconds_to_reach, ttl
 from .text import duration, safe
 from .models import (
@@ -258,6 +258,7 @@ padding:.1rem .42rem;border-radius:4px;margin-right:.3rem;border:1px solid var(-
 .plat.discord.live{background:#5865f21a;color:#5865f2;border-color:#5865f2}
 @media (prefers-color-scheme:dark){.plat.discord.live{color:#9aa6ff;border-color:#5865f2}}
 .plat.npc{font-style:italic}
+.season{border-left:3px solid var(--accent);background:var(--soft);padding:.5rem .9rem;margin:1rem 0}
 .heartland{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:10 8;opacity:.45}
 .plat.idle{opacity:.45}
 .plat.none{opacity:.4;border:none}
@@ -449,6 +450,26 @@ def event_feed(limit=10):
     return f'<h2>Recently in the realm</h2><ul class="feed">{items}</ul>'
 
 
+def load_season():
+    """The season as the bot sees it: an admin's SEASON choice if one is
+    stored, the calendar otherwise."""
+    from .models import Setting
+    try:
+        with Session(db()) as s:
+            row = s.get(Setting, "season")
+            choice = row.value if row else ""
+    except Exception:
+        choice = ""
+    if choice == "off":
+        return None
+    return season_named(choice) or season_on(today())
+
+
+def season_banner() -> str:
+    season = load_season()
+    return f'<p class="season">{E(season.arrives)}</p>' if season else ""
+
+
 def star(p) -> str:
     """A prestiged character's star, ★2 for twice; nothing otherwise."""
     count = p.get("prestige") or 0
@@ -478,6 +499,7 @@ def page_index(players):
   <div class="stat"><div class="k">Online</div><div class="v">{online}</div></div>
   <div class="stat"><div class="k">Top level</div><div class="v">{players[0]["level"]}</div></div>
 </div>
+{season_banner()}
 <h2>Standings</h2>
 <table><thead><tr><th>#</th><th>Player</th><th class="num">Level</th><th>Class</th>
 <th class="num">Next level</th><th class="num">Items</th><th>Playing from</th>
