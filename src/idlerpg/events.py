@@ -35,8 +35,10 @@ SLOTS = {
     "weapon": "weapon",
 }
 
-# Chance of a critical strike, by the winner's alignment: the good are more
-# likely to land one, the evil less.
+# One win in this many lands a critical strike, which adds time to the loser's
+# clock. As in the original, the evil land them most often (1 in 20) and the
+# good least (1 in 50). This comment once said the reverse, and the help text
+# followed it; the numbers were always the original's.
 CRITICAL_FACTOR = {"good": 50, "evil": 20, "neutral": 35}
 
 # Alignment tuning, kept together so it can be adjusted as the realm is

@@ -210,11 +210,11 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
 
 def _one(job: tuple) -> list[Result]:
     """One seeded run in a worker process, with its own overrides applied."""
-    roster, days, step, seed, habits, start_level, overrides = job
+    roster, days, step, seed, habits, start_level, overrides, curve = job
     restore = apply_overrides(overrides)
     try:
         return run(roster, days=days, step=step, seed=seed, habits=habits,
-                   start_level=start_level)
+                   start_level=start_level, curve=curve)
     finally:
         restore()
 
@@ -225,7 +225,7 @@ def run_many(roster: list[str], seeds: list[int], jobs: int = 1,
     worker applies the same overrides, so the runs differ only by luck."""
     work = [(roster, kwargs.get("days", 30), kwargs.get("step", 300), seed,
              kwargs.get("habits") or Habits(), kwargs.get("start_level", 30),
-             list(overrides or [])) for seed in seeds]
+             list(overrides or []), kwargs.get("curve") or Curve()) for seed in seeds]
     if jobs <= 1:
         return [r for job in work for r in _one(job)]
     with ProcessPoolExecutor(max_workers=jobs) as pool:
@@ -304,6 +304,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--talk", type=float, help="lines said per day (default 2)")
     parser.add_argument("--absences", type=float, help="quits per week (default 1)")
     parser.add_argument("--away-hours", type=float, help="mean absence (default 8)")
+    parser.add_argument("--rp-step", type=float,
+                        help="the level curve, as RP_STEP (default %s)" % Curve().step)
+    parser.add_argument("--penalty-step", type=float,
+                        help="how fast penalties grow, as RP_PENALTY_STEP "
+                             "(default %s)" % Curve().penalty_step)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--seeds", type=int, default=1,
                         help="runs to average, seeded from --seed upward")
@@ -323,12 +328,21 @@ def main(argv: list[str] | None = None) -> int:
     roster = parse_roster(args.players, args.per_alignment)
     apply_overrides(args.set)()  # refuse unknown names before any work starts
     seeds = list(range(args.seed, args.seed + args.seeds))
+    default = Curve()
+    curve = Curve(step=args.rp_step or default.step,
+                  penalty_step=args.penalty_step or default.penalty_step)
     results = run_many(roster, seeds, jobs=args.jobs, overrides=args.set,
                        days=args.days, step=args.step, habits=habits,
-                       start_level=args.start_level)
+                       start_level=args.start_level, curve=curve)
     rows = summarise(results, args.days)
-    print(report(rows, args.days, args.step, seeds, len(roster),
-                 label=args.profile or ""))
+    label = ", ".join(filter(None, [
+        args.profile,
+        f"rpstep {curve.step}" if curve.step != default.step else "",
+        f"penalty step {curve.penalty_step}"
+        if curve.penalty_step != default.penalty_step else "",
+        *args.set,
+    ]))
+    print(report(rows, args.days, args.step, seeds, len(roster), label=label))
     if args.json:
         with open(args.json, "w") as fh:
             json.dump({"settings": vars(args), "habits": habits.__dict__,

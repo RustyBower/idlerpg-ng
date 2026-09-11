@@ -79,9 +79,10 @@ both is set back 15%. The original halves and doubles clocks, which in a realm
 this size outweighs days of idling.
 
 **Alignment** has two parts, as in the tabletop's nine: lawful, neutral or
-chaotic, then good, neutral or evil. Good lands more critical hits and now and
-then prays with another good player for time off; evil lands fewer, and now
-and then steals a better item from a good player or pays its dark patron.
+chaotic, then good, neutral or evil. Good now and then prays with another good
+player for time off, but lands the fewest critical hits in battle; evil lands
+the most, and now and then steals a better item from a good player or pays its
+dark patron.
 Lawful takes 10% smaller penalties, feels calamities and godsends half as hard
 and is likelier to be chosen for quests; chaotic feels them half as hard again,
 will fight anyone, and attracts the odd random event. True neutral is tugged

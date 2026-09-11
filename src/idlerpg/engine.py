@@ -83,9 +83,10 @@ class RegistrationError(Exception):
 # set_alignment rather than in an adapter so the two cannot drift apart.
 ALIGNMENT_HELP = (
     "Two parts, law first: lawful, neutral or chaotic, then good, neutral or "
-    "evil - or one word to change one part. Good: more critical hits, and now "
-    "and then good players pray together for time off. Evil: fewer, and now "
-    "and then steal a better item from a good player or pay your dark patron. "
+    "evil - or one word to change one part. Good: now and then good players "
+    "pray together for time off, though they land the fewest critical hits. "
+    "Evil: the most critical hits, and now and then steal a better item from "
+    "a good player or pay your dark patron. "
     "Lawful: 10% smaller penalties, calamities and godsends half as hard, "
     "likelier to be chosen for quests. Chaotic: calamities and godsends half "
     "as hard again, will fight anyone, and the odd random event. True neutral: "

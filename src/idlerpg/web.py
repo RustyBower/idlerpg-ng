@@ -722,10 +722,10 @@ which the bot starts on its own.</p>
 chaotic, then good, neutral or evil. Pick with <code>ALIGN lawful good</code> - or
 <code>ALIGN chaotic</code>, <code>ALIGN evil</code>, <code>ALIGN true neutral</code> -
 on IRC, or <code>!align</code> on Discord; switching is free.
-<span class="good">Good</span> players land critical hits more often, and now and then
-two of them pray together for 5-12% off their time. <span class="evil">Evil</span> ones
-land fewer, and now and then steal a better item from a good player or pay their dark
-patron 1-5%. Lawful players take 10% smaller penalties, feel calamities and godsends
+<span class="good">Good</span> players now and then pray together for 5-12% off their
+time, though they land the fewest critical hits in battle. <span class="evil">Evil</span>
+ones land the most, and now and then steal a better item from a good player or pay their
+dark patron 1-5%. Lawful players take 10% smaller penalties, feel calamities and godsends
 half as hard and are likelier to be chosen for quests; chaotic ones feel them half as
 hard again, will fight anyone and attract the odd random event. The truly neutral are
 tugged now and then toward the realm's middle level.</p>

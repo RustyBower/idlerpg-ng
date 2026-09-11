@@ -117,9 +117,31 @@ class TestBattle:
         assert "lost!" in out[0].message
         assert a.next_ttl > 10000
 
-    def test_good_players_crit_more_often_than_evil(self):
-        assert events.CRITICAL_FACTOR["good"] > events.CRITICAL_FACTOR["neutral"]
-        assert events.CRITICAL_FACTOR["neutral"] > events.CRITICAL_FACTOR["evil"]
+    def test_the_evil_land_the_most_critical_strikes_and_the_good_the_fewest(self, engine):
+        """Measured, not read off the table: CRITICAL_FACTOR is "one win in
+        this many", so a larger number means rarer strikes. The old test here
+        was named for the opposite of what it checked, and the help text
+        followed the name."""
+        from idlerpg.models import Alignment
+        counts = {}
+        for alignment in (Alignment.GOOD, Alignment.NEUTRAL, Alignment.EVIL):
+            a = player(engine, f"a{alignment.value}", level=30)
+            b = player(engine, f"b{alignment.value}", level=30)
+            a.alignment = alignment
+            for i in a.items:
+                i.value = 1000          # a always wins
+            for i in b.items:
+                i.value = 1
+            engine.session.commit()
+            rng = random.Random(11)
+            counts[alignment.value] = 0
+            for _ in range(3000):
+                b.next_ttl = 10000
+                out = events.battle(a, b, rng)
+                counts[alignment.value] += any("crushing blow" in o.message for o in out)
+        assert counts["evil"] > counts["neutral"] > counts["good"]
+        assert 40 < counts["good"] < 85      # about 1 in 50 of 3000
+        assert 120 < counts["evil"] < 185    # about 1 in 20
 
 
 class TestMap:
