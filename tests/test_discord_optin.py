@@ -202,7 +202,7 @@ class TestNoDuplicateMessages:
             async def fetch_message(self, _id):
                 raise discord.Forbidden(_Resp(), "no history")
 
-            async def send(self, text):
+            async def send(self, text, view=None):
                 sent.append(text)
                 raise AssertionError("must not repost when merely unreadable")
 
@@ -229,7 +229,7 @@ class TestNoDuplicateMessages:
             async def fetch_message(self, _id):
                 raise discord.NotFound(_Resp(), "gone")
 
-            async def send(self, text):
+            async def send(self, text, view=None):
                 return posted
 
         monkeypatch.setattr(adapter, "get_channel", lambda _id: Chan())
@@ -277,9 +277,12 @@ class Msg:
             raise forbidden()
         self.reactions.append(Reaction(emoji))
 
-    async def edit(self, content):
-        self.edits.append(content)
-        self.content = content
+    async def edit(self, content=None, view=None):
+        if content is not None:
+            self.edits.append(content)
+            self.content = content
+        if view is not None:
+            self.components = [view]
 
     async def pin(self, reason=None):
         if not self.can_pin:
@@ -303,9 +306,11 @@ class NoteChannel:
             raise not_found()
         return self.messages[mid]
 
-    async def send(self, text):
+    async def send(self, text, view=None):
         self.sent += 1
         message = Msg(id=5000 + self.sent, content=text, can_react=self.can_react)
+        if view is not None:
+            message.components = [view]
         self.messages[message.id] = message
         return message
 
@@ -388,7 +393,7 @@ class TestTheNoteStaysCurrent:
             async def fetch_message(self, _id):
                 return message
 
-            async def send(self, text):
+            async def send(self, text, view=None):
                 raise AssertionError("must not repost an existing note")
 
         monkeypatch.setattr(adapter, "get_channel", lambda _id: Chan())

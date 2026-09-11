@@ -3,6 +3,22 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.22.0 - unreleased
+
+- **Slash commands on Discord.** Every command is also a slash command -
+  `/register`, `/login`, `/whoami`, `/fight`, `/achievements`, `/align` with
+  its choices, `/prestige`, `/perk`, and `/admin` for admins - answered so
+  only you see it. A slash command's options reach only the bot, so a
+  password no longer needs a DM.
+- **A Play button** on the pinned note opens a form to make a character, and
+  **I play on IRC** one to log in as yours; a player who has one is seated at
+  once. The buttons keep working across restarts.
+- **`/whoami` is a card**: level, next level, alignment, items, prestige,
+  achievements and keepsakes at a glance.
+- *Operators:* slash commands need the bot invited with the
+  `applications.commands` scope. Without it they are skipped with a warning,
+  and the `!` commands work as before.
+
 ## 0.21.0 - 2026-09-11
 
 - **Achievements.** Earned once and announced: reaching levels 10, 25, 40

@@ -860,6 +860,11 @@ that stable.</p>
   <tr><th>Fight someone</th><td><code>!fight &lt;name&gt;</code>, once a day; <code>!fight</code> alone shows who is in reach</td></tr>
   <tr><th>Commands</th><td><code>!help</code></td></tr>
 </table>
+<p class="muted">Every command is also a slash command - <code>/register</code>,
+<code>/whoami</code>, <code>/fight</code> and the rest - answered so only you see it,
+which is the safest way to send a password. The pinned note has a <strong>Play</strong>
+button that opens a form to make a character, and an <strong>I play on IRC</strong>
+button to log in as the one you have.</p>
 <p class="muted"><strong>Send <code>!register</code>, <code>!login</code>, <code>!merge</code>,
 <code>!newpass</code> and <code>!removeme</code> to the bot in a direct message, not in
 the channel</strong> - they

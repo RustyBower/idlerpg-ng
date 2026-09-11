@@ -18,11 +18,14 @@ not.
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 import discord
+from discord import app_commands
 
 from .. import achievements, admin, fights, prestige, seasonal
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
+from ..events import item_sum
 from ..models import Platform, Presence
 from ..rules import Penalty
 from ..text import duration, safe
@@ -39,7 +42,9 @@ PRESENCE_MAP = {
 }
 
 HELP = (
-    "Stay in the game channel and stay quiet to level up. Commands: "
+    "Stay in the game channel and stay quiet to level up. Every command is also "
+    "a slash command - `/register`, `/whoami`, `/fight` and the rest - answered so "
+    "only you see it, which is the safest way to send a password. Commands: "
     "`!register <name> <password> <class>`, `!login <name> <password>` "
     "(an IRC character works too, making it one character on both), "
     "`!merge <name> <password>` (fold another character of yours into this "
@@ -61,26 +66,84 @@ OPTIN_CHANNEL_KEY = "discord_optin_channel_id"
 
 OPTIN_TEXT = (
     "**IdleRPG** - a game you play by doing nothing.\n"
-    "React with {emoji} for the game channel and I will DM you how to start. "
-    "Or DM me `!register <name> <password> <class>` straight away - that gives "
-    "you the channel too. Already playing on IRC? DM me "
-    "`!login <name> <password>` instead and it becomes one character on both.\n\n"
+    "Press **Play** to make a character - it gives you the game channel too. "
+    "Already playing on IRC? Press **I play on IRC** and log in, and it becomes "
+    "one character on both. (Or react with {emoji} and I will DM you how.)\n\n"
     "Your character idles for as long as you keep the game role. Removing your "
     "reaction takes the role away, and with a character that counts as leaving "
-    "the game."
+    "the game. Every command is a slash command too - `/whoami`, `/fight`, "
+    "`/achievements` - answered so only you see it."
 )
 
 # Sent to someone who reacts to the note without a character: reacting gets
 # them the channel but nothing to play with.
 HOW_TO_PLAY = (
     "**Welcome to IdleRPG** - a game you play by doing nothing.\n"
-    "Make a character by replying here: `!register <name> <password> <class>` "
-    "(the class is just for show). Already playing on IRC? Send "
+    "Press **Play** on the pinned note, or use `/register`, or reply here: "
+    "`!register <name> <password> <class>` (the class is just for show). "
+    "Already playing on IRC? Send "
     "`!login <name> <password>` instead and it becomes one character on both.\n"
     "After that, just stay: your character levels up for as long as you keep "
     "the game role, and talking in the game channel sets it back. `!help` "
     "lists the rest."
 )
+
+
+class PlayView(discord.ui.View):
+    """The pinned note's buttons. Persistent - fixed ids, and re-added at every
+    start - so a note posted long ago still answers."""
+
+    def __init__(self, adapter: "DiscordAdapter"):
+        super().__init__(timeout=None)
+        self.adapter = adapter
+
+    @discord.ui.button(label="Play", emoji="\N{GAME DIE}", style=discord.ButtonStyle.success,
+                       custom_id="idlerpg:play")
+    async def play(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self.adapter.play(interaction)
+
+    @discord.ui.button(label="I play on IRC", style=discord.ButtonStyle.secondary,
+                       custom_id="idlerpg:login")
+    async def login(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(LoginModal(self.adapter))
+
+
+class RegisterModal(discord.ui.Modal, title="Make a character"):
+    """The Play button's form. What is typed in it reaches only the bot."""
+
+    name = discord.ui.TextInput(label="Name", max_length=16)
+    password = discord.ui.TextInput(label="Password - to log in from IRC too", max_length=64)
+    klass = discord.ui.TextInput(label="Class - just for show", max_length=30,
+                                 required=False, placeholder="Sysadmin")
+
+    def __init__(self, adapter: "DiscordAdapter"):
+        super().__init__()
+        self.adapter = adapter
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self.submit(interaction, self.name.value, self.password.value, self.klass.value)
+
+    async def submit(self, interaction, name: str, password: str, klass: str) -> None:
+        await self.adapter.run_command(
+            interaction.user, "register",
+            [name.strip(), password, *((klass or "adventurer").split())],
+            self.adapter._private_reply(interaction))
+
+
+class LoginModal(discord.ui.Modal, title="Log in as your character"):
+    name = discord.ui.TextInput(label="Name", max_length=16)
+    password = discord.ui.TextInput(label="Password", max_length=64)
+
+    def __init__(self, adapter: "DiscordAdapter"):
+        super().__init__()
+        self.adapter = adapter
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self.submit(interaction, self.name.value, self.password.value)
+
+    async def submit(self, interaction, name: str, password: str) -> None:
+        await self.adapter.run_command(interaction.user, "login", [name.strip(), password],
+                                       self.adapter._private_reply(interaction))
 
 
 class DiscordAdapter(discord.Client):
@@ -101,6 +164,15 @@ class DiscordAdapter(discord.Client):
         self.optin_channel_id = optin_channel_id
         self.optin_role_id = optin_role_id
         self.optin_emoji = optin_emoji
+        # Slash commands, registered to the home server once a process: a
+        # server's commands appear at once, global ones take up to an hour.
+        self.tree = app_commands.CommandTree(self)
+        self._slash_commands()
+        self._synced = False
+
+    async def setup_hook(self) -> None:
+        # The note's buttons answer for notes posted before this start too.
+        self.add_view(PlayView(self))
 
     @property
     def optin_enabled(self) -> bool:
@@ -161,7 +233,7 @@ class DiscordAdapter(discord.Client):
                 return
 
         try:
-            message = await channel.send(self.optin_text)
+            message = await channel.send(self.optin_text, view=PlayView(self))
         except discord.HTTPException:
             log.exception("could not post the opt-in message")
             return
@@ -187,6 +259,11 @@ class DiscordAdapter(discord.Client):
                 await message.edit(content=self.optin_text)
             except discord.HTTPException:
                 log.warning("could not update the opt-in message text")
+        if not getattr(message, "components", None):
+            try:
+                await message.edit(view=PlayView(self))
+            except discord.HTTPException:
+                log.warning("could not add the Play button to the opt-in message")
         if not any(r.me and str(r.emoji) == self.optin_emoji
                    for r in message.reactions):
             try:
@@ -352,10 +429,156 @@ class DiscordAdapter(discord.Client):
         except discord.HTTPException:
             log.debug("could not announce to Discord")
 
+    # ------------------------------------------------------ slash and buttons
+
+    @staticmethod
+    def _private_reply(interaction):
+        """A reply only the sender sees, however many a command sends."""
+        async def reply(text: str) -> None:
+            if interaction.response.is_done():
+                await interaction.followup.send(safe(text), ephemeral=True)
+            else:
+                await interaction.response.send_message(safe(text), ephemeral=True)
+        return reply
+
+    def _home_guild(self):
+        channel = self.get_channel(self.channel_id) if self.channel_id else None
+        if channel is not None and getattr(channel, "guild", None) is not None:
+            return channel.guild
+        return next((g for g in self.guilds if self._in_home_guild(g)), None)
+
+    async def sync_commands(self) -> bool:
+        """Register the slash commands with the home server. Needs the bot
+        invited with the applications.commands scope; without it the !
+        commands carry on as before."""
+        guild = self._home_guild()
+        if guild is None:
+            return False
+        try:
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+        except Exception:
+            log.warning("could not register slash commands - invite the bot with the "
+                        "applications.commands scope; the ! commands still work")
+            return False
+        log.info("slash commands registered in %s", guild)
+        return True
+
+    def _slash_commands(self) -> None:
+        """Every command as a slash command, answered so only its sender sees."""
+        tree = self.tree
+
+        async def run(interaction, verb: str, *args) -> None:
+            words = [w for a in args if a for w in str(a).split()]
+            await self.run_command(interaction.user, verb, words,
+                                   self._private_reply(interaction))
+
+        @tree.command(name="register", description="Make a character: a name, a password, and a class just for show")
+        @app_commands.rename(klass="class")
+        async def register(interaction: discord.Interaction, name: str, password: str,
+                           klass: str = "adventurer") -> None:
+            await run(interaction, "register", name, password, klass)
+
+        @tree.command(name="login", description="Log in as your character - an IRC one too, making it one on both")
+        async def login(interaction: discord.Interaction, name: str, password: str) -> None:
+            await run(interaction, "login", name, password)
+
+        @tree.command(name="merge", description="Fold another character of yours into this one")
+        async def merge(interaction: discord.Interaction, name: str, password: str) -> None:
+            await run(interaction, "merge", name, password)
+
+        @tree.command(name="newpass", description="Change your password")
+        async def newpass(interaction: discord.Interaction, current: str, new: str) -> None:
+            await run(interaction, "newpass", current, new)
+
+        @tree.command(name="removeme", description="Delete your character for good")
+        async def removeme(interaction: discord.Interaction, password: str) -> None:
+            await run(interaction, "removeme", password)
+
+        @tree.command(name="align", description="Choose your alignment: law or chaos, then good or evil")
+        async def align(interaction: discord.Interaction,
+                        law: Literal["lawful", "neutral", "chaotic"],
+                        moral: Literal["good", "neutral", "evil"]) -> None:
+            await run(interaction, "align", law, moral)
+
+        @tree.command(name="whoami", description="Your character at a glance")
+        async def whoami(interaction: discord.Interaction) -> None:
+            player = self.engine.player_for(Platform.DISCORD, str(interaction.user.id))
+            if player is None:
+                await interaction.response.send_message(
+                    "No character linked to this account yet - /register, or press "
+                    "Play on the pinned note.", ephemeral=True)
+                return
+            await interaction.response.send_message(embed=self.card(player), ephemeral=True)
+
+        @tree.command(name="fight", description="Once a day: challenge someone, or see who is in reach")
+        async def fight(interaction: discord.Interaction, name: str = "") -> None:
+            await run(interaction, "fight", name)
+
+        @tree.command(name="achievements", description="What you have earned and collected")
+        async def achievements_(interaction: discord.Interaction) -> None:
+            await run(interaction, "achievements")
+
+        @tree.command(name="prestige", description="From level 60: see, or confirm, starting over for perks")
+        async def prestige_(interaction: discord.Interaction, confirm: bool = False) -> None:
+            await run(interaction, "prestige", "confirm" if confirm else "")
+
+        @tree.command(name="perks", description="What your prestige points buy")
+        async def perks(interaction: discord.Interaction) -> None:
+            await run(interaction, "perks")
+
+        @tree.command(name="perk", description="Buy a rank of a perk")
+        async def perk(interaction: discord.Interaction, name: str) -> None:
+            await run(interaction, "perk", name)
+
+        @tree.command(name="help", description="How to play, and every command")
+        async def help_(interaction: discord.Interaction) -> None:
+            await run(interaction, "help")
+
+        @tree.command(name="admin", description="Admins only: an admin command, e.g. info or pause on")
+        async def admin_(interaction: discord.Interaction, command: str) -> None:
+            verb, _, rest = command.strip().partition(" ")
+            await run(interaction, verb.lower() or "admin", rest)
+
+    def card(self, player) -> discord.Embed:
+        """/whoami: a character at a glance, only for its owner."""
+        def esc(text) -> str:
+            return discord.utils.escape_markdown(safe(str(text)))
+        embed = discord.Embed(
+            title=esc(achievements.styled(player)),
+            description=esc(f"Level {player.level} {player.character_class or 'wanderer'}"))
+        embed.add_field(name="Next level", value=duration(player.next_ttl))
+        embed.add_field(name="Alignment", value=player.alignment_name)
+        embed.add_field(name="Items", value=str(item_sum(player)))
+        if player.prestige:
+            embed.add_field(name="Prestige", value=f"★{player.prestige}")
+        earned = sum(1 for a in player.achievements if a.key in achievements.BY_KEY)
+        embed.add_field(name="Achievements", value=f"{earned} of {len(achievements.FEATS)}")
+        if player.keepsakes:
+            embed.add_field(name="Keepsakes", inline=False,
+                            value=esc(", ".join(k.name for k in player.keepsakes))[:1024])
+        honours = seasonal.honours_text(player).strip()
+        if honours:
+            embed.set_footer(text=safe(honours))
+        return embed
+
+    async def play(self, interaction) -> None:
+        """The note's Play button: straight in for a player, a form for anyone new."""
+        player = self.engine.player_for(Platform.DISCORD, str(interaction.user.id))
+        if player is None:
+            await interaction.response.send_modal(RegisterModal(self))
+            return
+        note = await self._seat(interaction.user)
+        await interaction.response.send_message(
+            safe(f"You are playing as {player.name}.{note} Stay in the game channel "
+                 f"and say nothing - that is the game."), ephemeral=True)
+
     # ---------------------------------------------------------------- events
 
     async def on_ready(self) -> None:
         log.info("connected to Discord as %s", self.user)
+        if not self._synced:
+            self._synced = await self.sync_commands()
         await self.ensure_optin_message()
         # What was recorded before describes a session that is gone, and
         # anyone who lost the role or left while we were away must not keep
@@ -477,7 +700,13 @@ class DiscordAdapter(discord.Client):
             except discord.HTTPException:
                 pass
             return
+        await self.run_command(author, verb, args, reply)
 
+    async def run_command(self, author, verb: str, args: list[str], reply) -> None:
+        """One command - from a message, a slash command or a form - answered
+        through ``reply``. Keeping passwords out of channels is the caller's
+        job: a slash command's options and a form reach only the bot."""
+        external = str(author.id)
         if verb == "help":
             await reply(HELP)
         elif verb == "register":

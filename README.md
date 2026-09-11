@@ -38,10 +38,13 @@ You earn only while you are in `#idlerpg`. A `LOGIN` from outside it logs you
 in, and you start earning when you join. One nick holds one login: logging in
 as another character ends the first.
 
-**Discord** — send the bot a **direct message**. Registering or logging in
-gives you the game role, which is what lets you see the game channel and what
-keeps your character idling. Reacting to the bot's pinned note gets you the
-role too, and a DM explaining how to register if you have no character yet:
+**Discord** — press **Play** on the bot's pinned note and fill in the form, or
+use a **slash command**: every command below is one (`/register`, `/whoami`,
+`/fight`...), and its reply is seen only by you, which is the safest way to
+send a password. Registering or logging in gives you the game role, which is
+what lets you see the game channel and what keeps your character idling.
+Reacting to the pinned note gets you the role too, and a DM explaining how to
+register if you have no character yet. The same commands work as messages:
 
     !register <name> <password> <class>
     !login <name> <password>
@@ -315,6 +318,10 @@ members is how it sees who holds the game role - and the **presence** intent
 when no opt-in role is configured, since status is then what decides who is
 idling. Manage Roles is needed for the game role (and the bot's own role must
 sit above it), Pin Messages to pin its note, Manage Channels for the topic.
+Invite it with the **applications.commands** scope as well as **bot**, or the
+slash commands cannot be registered: the bot logs a warning and its `!`
+commands carry on. They are registered to the server itself, so they appear
+as soon as it starts.
 
 ## Development
 
