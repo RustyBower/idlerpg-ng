@@ -14,6 +14,9 @@ import math
 import random
 from dataclasses import dataclass
 
+from .lore import LORE
+from .text import duration
+
 DAY = 86400
 
 # Mean interval per online player, in seconds. From rpcheck().
@@ -91,14 +94,14 @@ def hand_of_god(player, rng: random.Random) -> Outcome:
         player.next_ttl = max(1, player.next_ttl - amount)
         text = (
             f"Verily I say unto thee, the Heavens have burst forth, and the "
-            f"blessed hand of God carried {player.name} {amount}s toward "
+            f"blessed hand of God carried {player.name} {duration(amount)} toward"
             f"level {player.level + 1}."
         )
     else:
         player.next_ttl += amount
         text = (
             f"Thereupon He stretched out His little finger among them and "
-            f"consumed {player.name} with fire, slowing the heathen {amount}s "
+            f"consumed {player.name} with fire, slowing the heathen {duration(amount)}"
             f"from level {player.level + 1}."
         )
     return Outcome(text, kind="hog")
@@ -119,7 +122,8 @@ def calamity(player, rng: random.Random) -> Outcome:
     amount = int(int(5 + rng.randrange(8)) / 100 * player.next_ttl)
     player.next_ttl += amount
     return Outcome(
-        f"{player.name} suffered a calamity! {amount}s is added to their clock.",
+        f"{player.name} {LORE.calamity(rng)}. That costs them {duration(amount)} "
+        f"on the road to level {player.level + 1}.",
         kind="calamity",
     )
 
@@ -140,7 +144,8 @@ def godsend(player, rng: random.Random) -> Outcome:
     amount = int(int(5 + rng.randrange(8)) / 100 * player.next_ttl)
     player.next_ttl = max(1, player.next_ttl - amount)
     return Outcome(
-        f"{player.name} received a godsend! {amount}s is removed from their clock.",
+        f"{player.name} {LORE.godsend(rng)}! That brings them {duration(amount)} "
+        f"closer to level {player.level + 1}.",
         kind="godsend",
     )
 
@@ -164,7 +169,7 @@ def battle(challenger, opponent, rng: random.Random) -> list[Outcome]:
         out.append(Outcome(
             f"{challenger.name} [{my_roll}/{my_sum}] has challenged "
             f"{opponent.name} [{opp_roll}/{opp_sum}] in combat and won! "
-            f"{gain}s is removed from {challenger.name}'s clock.",
+            f"{duration(gain)} is removed from {challenger.name}'s clock.",
             kind="battle",
         ))
         factor = CRITICAL_FACTOR.get(challenger.alignment.value, 35)
@@ -173,7 +178,7 @@ def battle(challenger, opponent, rng: random.Random) -> list[Outcome]:
             opponent.next_ttl += hit
             out.append(Outcome(
                 f"{challenger.name} has dealt {opponent.name} a Critical "
-                f"Strike! {hit}s is added to {opponent.name}'s clock.",
+                f"Strike! {duration(hit)} is added to {opponent.name}'s clock.",
                 kind="battle",
             ))
         elif rng.randrange(25) < 1 and challenger.level > 19:
@@ -185,7 +190,7 @@ def battle(challenger, opponent, rng: random.Random) -> list[Outcome]:
         out.append(Outcome(
             f"{challenger.name} [{my_roll}/{my_sum}] has challenged "
             f"{opponent.name} [{opp_roll}/{opp_sum}] in combat and lost! "
-            f"{gain}s is added to {challenger.name}'s clock.",
+            f"{duration(gain)} is added to {challenger.name}'s clock.",
             kind="battle",
         ))
     return out
@@ -279,11 +284,11 @@ def team_battle(online: list, rng: random.Random, map_x: int,
     if roll_a >= roll_b:
         for p in team_a:
             p.next_ttl = max(1, p.next_ttl - gain)
-        verdict = f"won! {gain}s is removed from their clocks"
+        verdict = f"won! {duration(gain)} is removed from their clocks"
     else:
         for p in team_a:
             p.next_ttl += gain
-        verdict = f"lost! {gain}s is added to their clocks"
+        verdict = f"lost! {duration(gain)} is added to their clocks"
     return [Outcome(
         f"{names_a} [{roll_a}/{sum_a}] have team battled {names_b} "
         f"[{roll_b}/{sum_b}] at [{x},{y}] and {verdict}.",
@@ -397,7 +402,7 @@ def evilness(online: list, rng: random.Random) -> list[Outcome]:
     added = int(me.next_ttl * (percent / 100))
     me.next_ttl += added
     return [Outcome(
-        f"{me.name} is forsaken by their evil god. {added}s is added to "
+        f"{me.name} is forsaken by their evil god. {duration(added)} is added to"
         f"their clock.",
         kind="evilness",
     )]

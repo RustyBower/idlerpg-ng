@@ -20,6 +20,8 @@ Running at [idlerpg.129irc.com](https://idlerpg.129irc.com/) on
     /msg idlerpg LOGIN <name> <password>
     /msg idlerpg WHOAMI
     /msg idlerpg ALIGN <good|neutral|evil>
+    /msg idlerpg NEWPASS <current> <new>
+    /msg idlerpg REMOVEME <password>        # deletes your character for good
     /msg idlerpg MERGE <name> <password>   # fold another character into this one
 
 The network blocks private messages from brand new connections, so wait about
@@ -39,10 +41,12 @@ role too, and a DM explaining how to register if you have no character yet:
     !login <name> <password>
     !whoami
     !align <good|neutral|evil>
+    !newpass <current> <new>
+    !removeme <password>
     !merge <name> <password>
 
-`!register`, `!login` and `!merge` carry a password, so they are refused in a
-channel; the bot deletes the message where it can and replies privately.
+`!register`, `!login`, `!merge`, `!newpass` and `!removeme` carry a password,
+so they are refused in a channel; the bot deletes the message where it can and replies privately.
 
 **Both at once** — log in on the other platform with the same name and
 password. You are then one character on both, still earning exactly one second

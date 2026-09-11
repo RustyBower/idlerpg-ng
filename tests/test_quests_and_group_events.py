@@ -283,3 +283,59 @@ class TestQuests:
         engine.session.commit()
         engine.penalise(outsider, Penalty.MESSAGE, message_length=20)
         assert quests.active_quest(engine.session) is not None
+
+
+class TestReadableMessages:
+    def test_calamities_tell_a_story_and_a_duration(self, engine):
+        p = make(engine, 1, level=10)[0]
+        seen = []
+        for _ in range(40):
+            p.next_ttl = 100000
+            seen.append(events.calamity(p, engine.rng).message)
+        timed = [m for m in seen if "on the road to level 11" in m]
+        assert timed
+        assert not any("s is added" in m for m in seen)
+        assert len(set(timed)) > len(timed) // 2   # the lore varies
+
+    def test_godsends_likewise(self, engine):
+        p = make(engine, 1, level=10)[0]
+        seen = []
+        for _ in range(40):
+            p.next_ttl = 100000
+            seen.append(events.godsend(p, engine.rng).message)
+        assert any("closer to level 11" in m for m in seen)
+
+    def test_a_level_up_says_when_the_next_is(self, engine):
+        p = make(engine, 1, level=0)[0]
+        p.next_ttl = 1
+        engine.session.commit()
+        ups = [o for o in engine.tick(1) if o.kind == "levelup"]
+        assert ups and "Next level in" in ups[0].message
+
+    def test_a_vigil_says_how_long_it_lasts(self, engine):
+        party = make(engine, 4, level=45)
+        for seed in range(20):
+            engine.rng.seed(seed)
+            out = quests.start(engine.session, party, engine.rng, 500, 500)
+            quest = quests.active_quest(engine.session)
+            if quest.kind == 1:
+                assert "The vigil lasts" in out.message
+                return
+            engine.session.delete(quest)
+            engine.session.commit()
+        pytest.fail("no vigil in 20 seeds")
+
+    def test_journeys_go_between_named_places(self, engine):
+        from idlerpg.lore import PLACES
+        spots = {p.at for p in PLACES}
+        party = make(engine, 4, level=45)
+        for seed in range(20):
+            engine.rng.seed(seed)
+            quests.start(engine.session, party, engine.rng, 500, 500)
+            quest = quests.active_quest(engine.session)
+            if quest.kind == 2:
+                assert (quest.x1, quest.y1) in spots and (quest.x2, quest.y2) in spots
+                return
+            engine.session.delete(quest)
+            engine.session.commit()
+        pytest.fail("no journey in 20 seeds")

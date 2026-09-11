@@ -15,8 +15,8 @@ minutes while vigils last a day. Here the party walks a step every half-minute,
 which makes a journey a few hours - something the realm can watch on the map -
 and gives up after a day, blaming no one.
 
-Quest texts are written here for now; the original's events.txt lines come
-with the flavour-text work.
+Quest texts come from lore.py: vigils at, and journeys between, the realm's
+named places.
 """
 
 from __future__ import annotations
@@ -29,8 +29,10 @@ from sqlalchemy.orm import Session, selectinload
 
 from . import events
 from .events import Outcome
+from .lore import LORE, place
 from .models import PenaltyRecord, Player, Quest, QuestParticipant, Setting, utcnow
 from .rules import Curve, Penalty, penalty_seconds
+from .text import duration
 
 MIN_LEVEL = 40
 PARTY_SIZE = 4
@@ -41,19 +43,6 @@ JOURNEY_TIMEOUT = timedelta(hours=24)
 JOURNEY_PACE = 30                      # seconds per step on a journey
 COMPLETION_BONUS = 0.75                # a quarter of the remaining burden is removed
 REST_KEY = "quest_rest_until"
-
-TIMED_QUESTS = [
-    "sit vigil at the Fountain of Unspoken Things until the moon sets",
-    "hold their tongues in the Library of Whispers for a full watch",
-    "guard the sleeping wyrm of Kettleridge without waking it",
-    "keep the beacon lit through the long dark of Harrowmere",
-]
-
-JOURNEY_QUESTS = [
-    "carry the Lantern of Small Mercies to the Ashen Gate, then onward to the Drowned Steps",
-    "bear the Kumquat of Ages to the Cairn of Regrets, and thence to the Weeping Bridge",
-    "escort the Last Cartographer to the Edge of the Map, and back to the Inn of Lost Causes",
-]
 
 
 def _aware(value):
@@ -108,21 +97,22 @@ def start(session: Session, players: list[Player], rng: random.Random,
     party = rng.sample(candidates, PARTY_SIZE)
 
     if rng.randrange(2):
+        # The original waits 12 to 24 hours.
+        seconds = 43200 + rng.randrange(43201)
         quest = Quest(
-            text=rng.choice(TIMED_QUESTS), kind=1,
-            # The original waits 12 to 24 hours.
-            expires=utcnow() + timedelta(seconds=43200 + rng.randrange(43201)),
+            text=LORE.vigil(rng), kind=1,
+            expires=utcnow() + timedelta(seconds=seconds),
         )
-        route = ""
+        route = f" The vigil lasts {duration(seconds)}."
     else:
+        journey = LORE.journey(rng)
+        (x1, y1), (x2, y2) = (place(journey.first, map_x, map_y),
+                              place(journey.second, map_x, map_y))
         quest = Quest(
-            text=rng.choice(JOURNEY_QUESTS), kind=2, stage=1,
-            x1=rng.randrange(map_x), y1=rng.randrange(map_y),
-            x2=rng.randrange(map_x), y2=rng.randrange(map_y),
+            text=journey.text, kind=2, stage=1, x1=x1, y1=y1, x2=x2, y2=y2,
             expires=utcnow() + JOURNEY_TIMEOUT,
         )
-        route = (f" Their road runs to [{quest.x1},{quest.y1}], then "
-                 f"[{quest.x2},{quest.y2}].")
+        route = f" Their road runs to [{x1},{y1}], then [{x2},{y2}]."
     quest.participants = [QuestParticipant(player_id=p.id) for p in party]
     session.add(quest)
     session.commit()
@@ -222,7 +212,7 @@ def fail(session: Session, player: Player,
             player_id=member.id, kind=Penalty.QUEST.value, seconds=seconds,
             platform=None,
         ))
-        costs.append(f"{member.name} +{seconds}s")
+        costs.append(f"{member.name} +{duration(seconds)}")
     session.delete(quest)
     _rest(session, FAILURE_REST)
     session.commit()

@@ -83,10 +83,14 @@ class Message:
         self.content = content
         self.channel = channel if channel is not None else DM()
         self.replies = []
+        self.reactions = []
         self.deleted = False
 
     async def reply(self, text, mention_author=False):
         self.replies.append(text)
+
+    async def add_reaction(self, emoji):
+        self.reactions.append(emoji)
 
     async def delete(self):
         self.deleted = True
@@ -340,3 +344,34 @@ class TestNothingGarblesDiscord:
         monkeypatch.setattr(adapter, "get_channel", lambda _id: Chan())
         await adapter.announce("\u202e**bold** \x0304win")
         assert posted == ["\\*\\*bold\\*\\* win"]
+
+
+class TestAccountCommandsOnDiscord:
+    async def _registered(self, adapter, guild):
+        member = Member(guild, role=True)
+        await command(adapter, member, "!register rusty pw Sysadmin")
+        return member
+
+    @pytest.mark.asyncio
+    async def test_newpass_only_in_a_dm(self, adapter, guild):
+        member = await self._registered(adapter, guild)
+        m = await command(adapter, member, "!newpass pw better", channel=Channel())
+        assert m.deleted
+        assert adapter.engine.authenticate("rusty", "pw") is not None
+        m = await command(adapter, member, "!newpass pw better")
+        assert "Password changed" in m.replies[0]
+        assert adapter.engine.authenticate("rusty", "better") is not None
+
+    @pytest.mark.asyncio
+    async def test_removeme(self, adapter, guild):
+        member = await self._registered(adapter, guild)
+        m = await command(adapter, member, "!removeme pw")
+        assert "rusty is gone" in m.replies[0]
+        assert adapter.engine.find_player("rusty") is None
+
+    @pytest.mark.asyncio
+    async def test_talking_in_the_channel_gets_an_hourglass(self, adapter, guild):
+        member = await self._registered(adapter, guild)
+        m = Message(member, "hello everyone", Channel())
+        await adapter.on_message(m)
+        assert m.reactions == ["\N{HOURGLASS WITH FLOWING SAND}"]

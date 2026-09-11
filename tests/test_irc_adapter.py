@@ -519,3 +519,73 @@ class TestNothingGarblesTheChannel:
         feed(adapter, ":profit!u@h PRIVMSG idlerpg :REGISTER \u202eprofit pw Rogue")
         assert "Cannot register" in sent(adapter)
         assert adapter.engine.find_player("\u202eprofit") is None
+
+
+class TestCtcp:
+    """Clients send VERSION on their own; it used to get the HELP text."""
+
+    def test_version_is_answered_and_help_is_not(self, adapter):
+        from idlerpg import __version__
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :\x01VERSION\x01")
+        assert f"\x01VERSION idlerpg-ng {__version__}" in sent(adapter)
+        assert "REGISTER" not in sent(adapter)
+
+    def test_ping_is_echoed(self, adapter):
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :\x01PING 12345\x01")
+        assert "NOTICE rusty :\x01PING 12345\x01" in adapter.writer.lines
+
+    def test_other_ctcp_is_ignored(self, adapter):
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :\x01TIME\x01")
+        assert adapter.writer.lines == []
+
+    def test_whoami_reads_like_a_person_wrote_it(self, adapter):
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :REGISTER rusty pw Sysadmin")
+        adapter.writer.lines.clear()
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :WHOAMI")
+        assert "next level in 10m" in sent(adapter)
+
+
+class TestAccountCommands:
+    def _here(self, adapter):
+        feed(adapter, ":rusty!u@h JOIN #idlerpg")
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :REGISTER rusty pw Sysadmin")
+        adapter.writer.lines.clear()
+        return adapter.engine.find_player("rusty")
+
+    def test_newpass(self, adapter):
+        self._here(adapter)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :NEWPASS wrong better")
+        assert "Cannot change it" in sent(adapter)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :NEWPASS pw better")
+        assert "Password changed" in sent(adapter)
+        assert adapter.engine.authenticate("rusty", "better") is not None
+
+    def test_removeme(self, adapter):
+        self._here(adapter)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :REMOVEME wrong")
+        assert adapter.engine.find_player("rusty") is not None
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :REMOVEME pw")
+        assert adapter.engine.find_player("rusty") is None
+        assert adapter.character_for_nick("rusty") is None
+        assert "rusty is gone" in sent(adapter)
+
+    def test_talking_says_what_it_cost(self, adapter):
+        self._here(adapter)
+        feed(adapter, ":rusty!u@h PRIVMSG #idlerpg :hello there")
+        assert "NOTICE rusty :That cost you" in sent(adapter)
+
+    def test_logging_out_says_what_it_cost(self, adapter):
+        self._here(adapter)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :LOGOUT")
+        assert "Logged out. That cost you" in sent(adapter)
+
+    def test_login_is_announced_and_resuming_is_not(self, adapter):
+        self._here(adapter)
+        adapter.engine.tick(1)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :LOGIN rusty pw")
+        assert any(o.kind == "login" for o in adapter.engine.tick(1))
+        fresh = IRCAdapter(adapter.engine, Config())
+        fresh.writer = FakeWriter()
+        feed(fresh, ":server 001 idlerpg :Welcome")
+        feed(fresh, ":server 352 idlerpg #idlerpg u h irc.server rusty H :0 x")
+        assert not any(o.kind == "login" for o in adapter.engine.tick(1))

@@ -1,3 +1,3 @@
 """Multi-platform IdleRPG: one character across IRC and Discord."""
 
-__version__ = "0.12.1"
+__version__ = "0.13.0"

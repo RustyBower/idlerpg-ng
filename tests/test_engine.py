@@ -395,3 +395,31 @@ class TestNamesAreChecked:
         from idlerpg.models import EventLog
         engine.log_event("test", "\u202eflipped \x0304red")
         assert engine.session.query(EventLog).one().message == "flipped red"
+
+
+class TestAccounts:
+    def test_changing_a_password_needs_the_current_one(self, engine):
+        p = register(engine)
+        with pytest.raises(RegistrationError, match="current password"):
+            engine.change_password(p, "wrong", "new")
+        engine.change_password(p, "hunter2", "correct horse")
+        assert engine.authenticate("rusty", "correct horse") is not None
+        assert engine.authenticate("rusty", "hunter2") is None
+
+    def test_removing_needs_the_password_and_tells_the_realm(self, engine):
+        p = register(engine)
+        engine.tick(1)  # drain the registration announcement
+        with pytest.raises(RegistrationError):
+            engine.remove_player(p, "wrong")
+        engine.remove_player(p, "hunter2")
+        assert engine.find_player("rusty") is None
+        assert any("rusty has left the realm" in o.message for o in engine.tick(1))
+
+    def test_a_login_is_announced_and_a_resumption_is_not(self, engine):
+        p = register(engine)
+        engine.tick(1)
+        engine.record_login(p, Platform.IRC, announce=False)
+        assert not any(o.kind == "login" for o in engine.tick(1))
+        engine.record_login(p, Platform.DISCORD)
+        out = [o for o in engine.tick(1) if o.kind == "login"]
+        assert out and "is now online from discord" in out[0].message

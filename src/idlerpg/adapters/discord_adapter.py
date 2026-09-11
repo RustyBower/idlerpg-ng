@@ -24,7 +24,7 @@ import discord
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
-from ..text import safe
+from ..text import duration, safe
 
 log = logging.getLogger(__name__)
 
@@ -42,11 +42,12 @@ HELP = (
     "`!register <name> <password> <class>`, `!login <name> <password>` "
     "(an IRC character works too, making it one character on both), "
     "`!merge <name> <password>` (fold another character of yours into this "
-    "one), `!align <good|neutral|evil>`, `!whoami`"
+    "one), `!align <good|neutral|evil>`, `!newpass <current> <new>`, "
+    "`!removeme <password>`, `!whoami`. Anything with a password goes in a DM."
 )
 
 # These carry a password, so they are accepted only in a DM.
-PASSWORD_VERBS = frozenset({"register", "login", "merge"})
+PASSWORD_VERBS = frozenset({"register", "login", "merge", "newpass", "removeme"})
 
 
 OPTIN_MESSAGE_KEY = "discord_optin_message_id"
@@ -428,10 +429,16 @@ class DiscordAdapter(discord.Client):
         if self.channel_id and message.channel.id == self.channel_id:
             player = self.engine.player_for(Platform.DISCORD, str(message.author.id))
             if player is not None:
-                self.engine.penalise(
+                cost = self.engine.penalise(
                     player, Penalty.MESSAGE,
                     message_length=len(content), platform=Platform.DISCORD,
                 )
+                if cost:
+                    # A reaction, not a DM: one per chatty line would be spam.
+                    try:
+                        await message.add_reaction("\N{HOURGLASS WITH FLOWING SAND}")
+                    except discord.HTTPException:
+                        pass
 
     # -------------------------------------------------------------- commands
 
@@ -497,6 +504,7 @@ class DiscordAdapter(discord.Client):
                 )
                 return
             self.engine.link(player, Platform.DISCORD, external, str(author))
+            self.engine.record_login(player, Platform.DISCORD)
             note = await self._seat(author)
             await reply(f"Logged in as {player.name}, level {player.level}.{note}")
         elif verb == "merge":
@@ -518,6 +526,32 @@ class DiscordAdapter(discord.Client):
                 await reply(f"Cannot merge: {exc}")
                 return
             await reply(outcome.message)
+        elif verb in ("newpass", "removeme"):
+            player = self.engine.player_for(Platform.DISCORD, external)
+            if player is None:
+                await reply("You have no character here yet.")
+                return
+            if verb == "newpass":
+                if len(args) < 2:
+                    await reply("`!newpass <current password> <new password>`")
+                    return
+                try:
+                    self.engine.change_password(player, args[0], args[1])
+                except RegistrationError as exc:
+                    await reply(f"Cannot change it: {exc}.")
+                    return
+                await reply("Password changed.")
+                return
+            if not args:
+                await reply(f"`!removeme <password>` deletes {player.name} for good.")
+                return
+            name = player.name
+            try:
+                self.engine.remove_player(player, args[0])
+            except RegistrationError as exc:
+                await reply(f"Cannot remove: {exc}.")
+                return
+            await reply(f"{name} is gone. `!register` any time to start again.")
         elif verb == "align":
             player = self.engine.player_for(Platform.DISCORD, external)
             if player is None:
@@ -542,7 +576,8 @@ class DiscordAdapter(discord.Client):
                 return
             await reply(
                 f"{player.name}, level {player.level} {player.character_class}, "
-                f"{player.next_ttl}s to go, alignment {player.alignment.value}."
+                f"next level in {duration(player.next_ttl)}, "
+                f"alignment {player.alignment.value}."
             )
         else:
             await reply(HELP)

@@ -136,3 +136,9 @@ def test_the_site_cleans_names_but_links_to_the_real_one():
     assert web.E("\u202e<b>x</b>") == "&lt;b&gt;x&lt;/b&gt;"
     # The link keeps the name exactly, or it would open a different player.
     assert web.link("\u202eprofit-on-irc") == "/player/%E2%80%AEprofit-on-irc"
+
+
+def test_the_footer_shows_the_running_version():
+    from idlerpg import __version__, web
+    page = web.layout("Test", "<p>body</p>")
+    assert f"idlerpg-ng {__version__}" in page

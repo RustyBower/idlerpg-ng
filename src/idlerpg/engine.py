@@ -17,7 +17,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import hash_password, verify_password
-from .text import check_class, check_name, safe
+from .text import check_class, check_name, duration, safe
 
 from .models import (
     Alignment,
@@ -298,7 +298,8 @@ class Engine:
                 remaining += int(ttl(player.level, self.curve))
                 announcements.append(Outcome(
                     f"{player.name}, the {player.character_class or 'nameless'}, "
-                    f"has attained level {player.level}!",
+                    f"has attained level {player.level}! "
+                    f"Next level in {duration(remaining)}.",
                     kind="levelup",
                 ))
                 # Levelling is when the original hands out loot.
@@ -433,6 +434,53 @@ class Engine:
         if absorb is None:
             raise RegistrationError("wrong name or password")
         return self.merge(keeper, absorb)
+
+    # --------------------------------------------------------------- accounts
+
+    def change_password(self, player: Player, current: str, new: str) -> None:
+        """Change a password, given the current one.
+
+        Asked for even when logged in: an IRC login can be resumed from a
+        remembered address, and that alone must not be enough to lock the
+        owner out.
+        """
+        if not verify_password(current, player.password_hash):
+            raise RegistrationError("that is not the current password")
+        if not new:
+            raise RegistrationError("the new password cannot be empty")
+        player.password_hash = hash_password(new)
+        self.session.commit()
+
+    def remove_player(self, player: Player, password: str) -> None:
+        """Delete a character for good, given its password, and tell the realm.
+
+        A quester leaving this way fails the quest, as quitting would.
+        """
+        if not verify_password(password, player.password_hash):
+            raise RegistrationError("wrong password")
+        self._pending.extend(quests.fail(self.session, player, self.curve))
+        name = player.name
+        self.session.delete(player)
+        self.session.commit()
+        self._pending.append(Outcome(f"{name} has left the realm for good.",
+                                     kind="remove"))
+
+    def record_login(self, player: Player, platform: Platform,
+                     announce: bool = True) -> None:
+        """Note a login, and unless it is only a resumption, tell the realm.
+
+        Resumptions after a restart are not announced, or every restart would
+        read out the whole channel.
+        """
+        player.last_login = utcnow()
+        self.session.commit()
+        if announce:
+            self._pending.append(Outcome(
+                f"{player.name}, the level {player.level} "
+                f"{player.character_class or 'wanderer'}, is now online from "
+                f"{platform.value}. Next level in {duration(player.next_ttl)}.",
+                kind="login",
+            ))
 
     # -------------------------------------------------------------- alignment
 

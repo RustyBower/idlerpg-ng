@@ -25,10 +25,11 @@ import re
 import ssl
 from dataclasses import dataclass
 
+from .. import __version__
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
-from ..text import safe
+from ..text import duration, safe
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ HELP = (
     "Stay connected and quiet to level up. "
     "REGISTER <name> <password> <class> | LOGIN <name> <password> (a Discord "
     "character too) | LOGOUT | WHOAMI | ALIGN <good|neutral|evil> | "
+    "NEWPASS <current> <new> | REMOVEME <password> | "
     "MERGE <name> <password> (fold another character of yours into this one)"
 )
 
@@ -168,8 +170,9 @@ class IRCAdapter:
         return self._settle(player, identity.external_id)
 
     def unbind(self, nick: str, penalty: Penalty | None = None,
-               forget: bool = True) -> None:
+               forget: bool = True) -> int:
         """Take ``nick`` offline and, unless ``forget`` is off, end its login.
+        Returns what the penalty cost.
 
         Leaving the bot could not see as the player's choice - a netsplit -
         keeps the login, so it resumes when they come back.
@@ -178,15 +181,17 @@ class IRCAdapter:
         player = self.character_for_nick(nick)
         if player is None:
             self.bound.pop(nick.lower(), None)
-            return
+            return 0
+        cost = 0
         if penalty is not None:
-            self.engine.penalise(player, penalty, platform=Platform.IRC)
+            cost = self.engine.penalise(player, penalty, platform=Platform.IRC)
         if forget:
             identity = self.engine.find_identity(Platform.IRC, external)
             if identity is not None:
                 self.engine.remember_login(identity, None)
         self.bound.pop(nick.lower(), None)
         self._settle(player, external)
+        return cost
 
     def _settle(self, player, external: str) -> bool:
         """Set a character's IRC presence from the channel; returns it.
@@ -221,6 +226,7 @@ class IRCAdapter:
         if identity is None:
             return
         self.bind(nick, identity.player, mask)
+        self.engine.record_login(identity.player, Platform.IRC, announce=False)
         log.info("resumed %s as %s", nick, identity.player.name)
 
     # -------------------------------------------------------------- commands
@@ -261,6 +267,7 @@ class IRCAdapter:
             except RegistrationError as exc:
                 self.notice(nick, f"Cannot log in: {exc}")
                 return
+            self.engine.record_login(player, Platform.IRC)
             self.notice(nick, f"Logged in as {player.name}, level {player.level}."
                               + self._join_hint(here))
         elif verb == "LOGOUT":
@@ -268,8 +275,43 @@ class IRCAdapter:
             if player is None:
                 self.notice(nick, "You are not logged in.")
                 return
-            self.unbind(nick, Penalty.LOGOUT)
-            self.notice(nick, "Logged out. Your timer took the usual penalty.")
+            cost = self.unbind(nick, Penalty.LOGOUT)
+            if cost:
+                self.notice(nick, f"Logged out. That cost you {duration(cost)}.")
+            else:
+                self.notice(nick, "Logged out of IRC. You are still playing "
+                                  "elsewhere, so it cost nothing.")
+        elif verb == "NEWPASS":
+            player = self.character_for_nick(nick)
+            if player is None:
+                self.notice(nick, "Log in first, then NEWPASS <current> <new>.")
+                return
+            if len(args) < 2:
+                self.notice(nick, "NEWPASS <current password> <new password>")
+                return
+            try:
+                self.engine.change_password(player, args[0], args[1])
+            except RegistrationError as exc:
+                self.notice(nick, f"Cannot change it: {exc}.")
+                return
+            self.notice(nick, "Password changed.")
+        elif verb == "REMOVEME":
+            player = self.character_for_nick(nick)
+            if player is None:
+                self.notice(nick, "Log in first, then REMOVEME <password>.")
+                return
+            if not args:
+                self.notice(nick, f"REMOVEME <password> deletes {player.name} for good.")
+                return
+            external, name = self.bound.get(nick.lower()), player.name
+            try:
+                self.engine.remove_player(player, args[0])
+            except RegistrationError as exc:
+                self.notice(nick, f"Cannot remove: {exc}.")
+                return
+            for bound_nick in [n for n, e in self.bound.items() if e == external]:
+                self.bound.pop(bound_nick)
+            self.notice(nick, f"{name} is gone. REGISTER any time to start again.")
         elif verb == "ALIGN":
             player = self.character_for_nick(nick)
             if player is None:
@@ -314,10 +356,22 @@ class IRCAdapter:
             self.notice(
                 nick,
                 f"{player.name}, level {player.level} {player.character_class}, "
-                f"{player.next_ttl}s to go, alignment {player.alignment.value}.",
+                f"next level in {duration(player.next_ttl)}, "
+                f"alignment {player.alignment.value}.",
             )
         else:
             self.notice(nick, HELP)
+
+    def handle_ctcp(self, nick: str, request: str) -> None:
+        """Answer the CTCP queries clients send on their own. Anything else is
+        ignored rather than answered with HELP, which is what every client's
+        automatic VERSION request used to get."""
+        verb, _, rest = request.partition(" ")
+        if verb.upper() == "VERSION":
+            self.notice(nick, f"\x01VERSION idlerpg-ng {__version__} - "
+                              f"https://github.com/RustyBower/idlerpg-ng\x01")
+        elif verb.upper() == "PING":
+            self.notice(nick, f"\x01PING {rest}\x01")
 
     def _join_hint(self, here: bool) -> str:
         return "" if here else f" Join {self.cfg.channel} to start idling."
@@ -387,12 +441,18 @@ class IRCAdapter:
             if target.lower() == channel:
                 player = self.character_for_nick(msg.nick)
                 if player is not None:
-                    self.engine.penalise(
+                    cost = self.engine.penalise(
                         player, Penalty.MESSAGE,
                         message_length=len(msg.text), platform=Platform.IRC,
                     )
+                    if cost:
+                        self.notice(msg.nick, f"That cost you {duration(cost)}: "
+                                              f"talking in {self.cfg.channel} sets you back.")
             elif target.lower() == self.nick.lower():
-                self.handle_command(msg.nick, msg.text, msg.prefix)
+                if msg.text.startswith("\x01"):
+                    self.handle_ctcp(msg.nick, msg.text.strip("\x01"))
+                else:
+                    self.handle_command(msg.nick, msg.text, msg.prefix)
         elif cmd == "JOIN":
             where = msg.params[0] if msg.params else ""
             if where.lower() != channel:
@@ -458,9 +518,12 @@ class IRCAdapter:
                 self.members.add(new.lower())
             player = self.character_for_nick(msg.nick)
             if player is not None:
-                self.engine.penalise(player, Penalty.NICK, platform=Platform.IRC)
+                cost = self.engine.penalise(player, Penalty.NICK, platform=Platform.IRC)
                 self.bound.pop(msg.nick.lower(), None)
                 self.bind(new, player, renamed(msg.prefix, new))
+                if cost:
+                    self.notice(new, f"That cost you {duration(cost)}: "
+                                     f"changing nick sets you back.")
 
     # ------------------------------------------------------------------- run
 

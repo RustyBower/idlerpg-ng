@@ -21,6 +21,7 @@ from urllib.parse import unquote, quote
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from . import __version__
 from .engine import MAP_X, MAP_Y
 from .text import duration, safe
 from .models import (
@@ -286,6 +287,7 @@ def layout(title, body, current="/", refresh=60):
   &middot; <a href="/api/players.json">players.json</a>
   &middot; <a href="/api/quest.json">quest.json</a>
   &middot; <a href="https://129irc.com">129irc.com</a>
+  &middot; <a href="https://github.com/RustyBower/idlerpg-ng">idlerpg-ng {E(__version__)}</a>
 </footer>
 </div></body></html>"""
 
@@ -649,6 +651,8 @@ def page_game():
   <tr><th>Log in later</th><td><code>/msg {E(BOT_NICK)} LOGIN &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Check yourself</th><td><code>/msg {E(BOT_NICK)} WHOAMI</code></td></tr>
   <tr><th>Choose alignment</th><td><code>/msg {E(BOT_NICK)} ALIGN good|neutral|evil</code></td></tr>
+  <tr><th>Change password</th><td><code>/msg {E(BOT_NICK)} NEWPASS &lt;current&gt; &lt;new&gt;</code></td></tr>
+  <tr><th>Delete your character</th><td><code>/msg {E(BOT_NICK)} REMOVEME &lt;password&gt;</code></td></tr>
   <tr><th>Merge a second character</th><td><code>/msg {E(BOT_NICK)} MERGE &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Log out</th><td><code>/msg {E(BOT_NICK)} LOGOUT</code></td></tr>
 </table>
@@ -665,11 +669,14 @@ that stable.</p>
   <tr><th>Log in later</th><td><code>!login &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Check yourself</th><td><code>!whoami</code></td></tr>
   <tr><th>Choose alignment</th><td><code>!align good|neutral|evil</code></td></tr>
+  <tr><th>Change password</th><td><code>!newpass &lt;current&gt; &lt;new&gt;</code></td></tr>
+  <tr><th>Delete your character</th><td><code>!removeme &lt;password&gt;</code></td></tr>
   <tr><th>Merge a second character</th><td><code>!merge &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Commands</th><td><code>!help</code></td></tr>
 </table>
-<p class="muted"><strong>Send <code>!register</code>, <code>!login</code> and
-<code>!merge</code> to the bot in a direct message, not in the channel</strong> - they
+<p class="muted"><strong>Send <code>!register</code>, <code>!login</code>, <code>!merge</code>,
+<code>!newpass</code> and <code>!removeme</code> to the bot in a direct message, not in
+the channel</strong> - they
 contain your password. If you put one in a channel the bot deletes it and replies
 privately instead. Everything else works in {E(CHANNEL)} or a DM.</p>
 <p class="muted">On Discord you idle for as long as you hold the game role, which
