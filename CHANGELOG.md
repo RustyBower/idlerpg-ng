@@ -3,7 +3,7 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.17.0 - unreleased
+## 0.17.0 - 2026-09-11
 
 - **Fights.** Once a day, from level 10, `FIGHT <name>` (`!fight` on Discord)
   challenges someone in the game and no more than 5 levels below you. The
