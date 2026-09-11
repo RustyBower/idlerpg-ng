@@ -3,7 +3,7 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.17.1 - unreleased
+## 0.17.1 - 2026-09-11
 
 - **Only the logged in speak in the game channel.** With `IRC_MODERATE` the
   bot keeps it moderated (`+m`) whenever it holds ops, so the voice that marks
