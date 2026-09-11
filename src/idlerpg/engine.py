@@ -346,6 +346,7 @@ class Engine:
             announcements.extend(achievements.hourly(self, online))
 
         pace = self._season_pace(online)
+        levelled: list[Player] = []
         for player in online:
             remaining = player.next_ttl - elapsed_seconds * pace.get(player.id, 1.0)
             while remaining <= 0:
@@ -362,7 +363,14 @@ class Engine:
                 if found:
                     announcements.append(found)
                 announcements.extend(achievements.on_level(player, self.rng))
+                if player not in levelled:
+                    levelled.append(player)
             player.next_ttl = int(remaining)
+        # The original challenges someone on levelling. It waits until the
+        # clock above is written back: a battle fought inside that loop would
+        # have its effect on the challenger overwritten by it.
+        for player in levelled:
+            announcements.extend(self._levelup_battle(player, online))
 
         announcements.extend(self._world_events(online, elapsed_seconds))
 
@@ -418,6 +426,16 @@ class Engine:
         middle = statistics.median(p.level for p in online)
         return {p.id: season.pace * (season.catch_up if p.level < middle else 1.0)
                 for p in online}
+
+    def _levelup_battle(self, player: Player, online: list[Player]) -> list[Outcome]:
+        """A battle on levelling, as the original does - from the level where
+        challenges stop being declined."""
+        if player.level < events.LEVELUP_BATTLE_FROM:
+            return []
+        others = [p for p in online if p is not player]
+        if not others:
+            return []
+        return events.battle(player, self.rng.choice(others), self.rng)
 
     def _world_events(self, online: list[Player],
                       elapsed: float) -> list[Outcome]:

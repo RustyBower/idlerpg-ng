@@ -521,7 +521,8 @@ class IRCAdapter:
                 f"{achievements.styled(player)}, level {player.level} {player.character_class}, "
                 f"next level in {duration(player.next_ttl)}, "
                 f"alignment {player.alignment_name}.{seasonal.honours_text(player)}"
-                f"{achievements.summary(player)}",
+                f"{achievements.summary(player)}"
+                f"{achievements.rival_line(self.engine, player)}",
             )
         elif verb in achievements.VERBS:
             self.notice_lines(nick, achievements.command(

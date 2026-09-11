@@ -89,6 +89,7 @@ def load_players():
                 select(Player).options(
                     selectinload(Player.identities), selectinload(Player.items),
                     selectinload(Player.achievements), selectinload(Player.keepsakes),
+                    selectinload(Player.tallies),
                 )
             ).all()
             penalties = {}
@@ -99,6 +100,7 @@ def load_players():
             ):
                 penalties.setdefault(pid, {})[kind] = int(total or 0)
 
+            names = {p.id: p.name for p in rows}
             players = []
             for p in rows:
                 plats = {
@@ -120,6 +122,7 @@ def load_players():
                     "feats": {a.key: str(a.earned or "")[:10]
                               for a in p.achievements if ":" not in a.key},
                     "keepsakes": [(k.name, k.season) for k in p.keepsakes],
+                    "rival": rival_name(p, names),
                     "x": p.x or 0, "y": p.y or 0,
                     "created": p.created, "lastlogin": p.last_login,
                     "alignment": p.alignment_name.title(),
@@ -528,6 +531,17 @@ every achievement and how to earn it.</p>
 """
 
 
+def rival_name(player, names: dict) -> str:
+    """Whoever has beaten this character most, from the tallies already
+    loaded - no second trip to the database."""
+    beatings = [(t.value, t.key) for t in player.tallies
+                if t.key.startswith("beaten-by:")]
+    if not beatings:
+        return ""
+    _, key = max(beatings)
+    return names.get(int(key.split(":")[1]), "")
+
+
 def titled(p) -> str:
     """", the Lantern-Bearer" after a name, for a title earned."""
     return f'<span class="ptitle">, {E(p["title"])}</span>' if p.get("title") else ""
@@ -795,6 +809,7 @@ def page_player(player):
 <table>
   <tr><th>Playing from</th><td>{platform_badges(player)}</td></tr>
   <tr><th>Position</th><td>({player["x"]}, {player["y"]})</td></tr>
+  <tr><th>Rival</th><td>{E(player.get("rival") or "") or "&mdash;"}</td></tr>
   <tr><th>Total penalties</th><td>{E(duration(total_pen))}</td></tr>
   <tr><th>Created</th><td>{E(ago(player["created"]))}</td></tr>
   <tr><th>Last login</th><td>{E(ago(player["lastlogin"]))}</td></tr>

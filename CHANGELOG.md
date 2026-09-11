@@ -3,6 +3,30 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.23.0 - unreleased
+
+- **A battle on levelling**, as the original does, from level 25 - where
+  challenges stop being declined. In simulation it lifts battles from 21 to
+  30 a week each and the realm's pace from 0.900 to 0.917, and *narrows* the
+  gap between alignments (4.9% to 3.1%). At the level-60 wall, where
+  level-ups are rare, it changes almost nothing.
+- **The eight named uniques**, each in its own slot behind its own level,
+  worth far more than the curve can roll: the Lantern of Small Mercies, the
+  Kumquat of Ages, the Seven-League Courser, the Last Honest Ledger, the
+  Bell That Must Not Ring, the Moon-Rake, the Crown of Minor Kings and the
+  Door That Was a Mimic. A climb from 1 to 80 turns up about one. The
+  Courser is a mount: it carries a whole quest party, two ranks of Stride
+  faster. Nameless uniques are gone - they out-numbered the eight and made
+  their worth meaningless. Ones already found keep their value.
+- **Rivals and trophies.** Whoever beats you most is named in `WHOAMI`, on
+  the `/whoami` card and on your page; beating someone ten or more levels
+  above you leaves a trophy to keep.
+- **Not shipped: the original's ±10% good-and-evil battle modifier.** Good
+  gains too much: the gap between alignments doubles (3.1% to 7.7%), with
+  chaotic good +4.7% and neutral evil -3.0% beyond luck. At ±5% it is still
+  +3.4% for lawful good and a 5.7% spread. The switch (`MORAL_BATTLE`)
+  stays at 1.0 for everyone.
+
 ## 0.22.0 - 2026-09-11
 
 - **Slash commands on Discord.** Every command is also a slash command -

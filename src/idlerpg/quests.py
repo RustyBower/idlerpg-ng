@@ -150,8 +150,12 @@ def steer(session: Session, elapsed: float, rng: random.Random) -> set[int]:
     quest = active_quest(session)
     if quest is None or quest.kind != 2:
         return set()
-    # The party walks at its fastest strider's pace: one carries the rest.
+    # The party walks at its fastest strider's pace: one carries the rest -
+    # and a mount among them carries everyone, like ranks of Stride.
     stride = max((events.rank(m.player, "stride") for m in quest.participants), default=0)
+    if any(item.tag == events.MOUNT_TAG
+           for m in quest.participants for item in m.player.items):
+        stride = max(stride, events.MOUNT_STRIDE)
     pace = JOURNEY_PACE / (1 + events.STRIDE_PER_RANK * stride)
     whole, part = divmod(elapsed, pace)
     steps = int(whole) + (1 if rng.random() < part / pace else 0)

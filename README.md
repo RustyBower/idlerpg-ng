@@ -118,6 +118,17 @@ players without making any. As in the original, two characters from level 10
 who land on the same tile fight too, on the same terms - at most once a day
 for any pair, and never two questers on the same quest.
 
+**Battles and uniques.** Besides the realm's hourly challenge, levelling up
+from level 25 picks a fight, as the original does. Items come from level-ups,
+and from level 25 a find can turn up one of the realm's eight named uniques -
+each in its own slot, behind its own level, worth far more than the curve can
+roll. A climb from 1 to 80 turns up about one. The Seven-League Courser is a
+mount: whoever holds it carries their whole quest party along faster. Whoever
+beats you most becomes your rival, named in `WHOAMI`; beating someone ten
+levels above you leaves a trophy. The original's ±10% good-and-evil battle
+modifier is *not* used: in simulation it doubled the gap between alignments,
+and even ±5% left lawful good ahead beyond luck (`MORAL_BATTLE`, all 1.0).
+
 **The map.** Characters drift at random through the middle 80% of the map,
 the heartland, and wander back in from the wilds at its rim. The realm's
 places - and so its journeys - all lie inside the heartland. The map no

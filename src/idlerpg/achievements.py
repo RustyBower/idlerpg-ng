@@ -206,10 +206,50 @@ def on_align(player: Player) -> list[Outcome]:
     return award(player, "taking-sides") if player.alignment_name != "true neutral" else []
 
 
+TROPHY_GAP = 10             # levels above you, for a trophy off the loser
+
+
+def _trophy(winner: Player, loser: Player) -> list[Outcome]:
+    """Beating someone far above you leaves something to keep."""
+    if loser.level < winner.level + TROPHY_GAP:
+        return []
+    name = f"a trophy taken from {loser.name}"
+    if any(k.name == name for k in winner.keepsakes):
+        return []
+    winner.keepsakes.append(Keepsake(name=name, season="Trophies"))
+    return [Outcome(f"{winner.name} takes a trophy from {loser.name}, who was "
+                    f"{loser.level - winner.level} levels above them.",
+                    kind="keepsake", player_id=winner.id)]
+
+
+def rival(engine, player: Player) -> str | None:
+    """Whoever has beaten this character most - for show, in WHOAMI."""
+    beatings = [(t.value, t.key) for t in player.tallies if t.key.startswith("beaten-by:")]
+    if not beatings:
+        return None
+    _, key = max(beatings)
+    other = engine.session.get(Player, int(key.split(":")[1]))
+    return other.name if other is not None else None
+
+
+def rival_line(engine, player: Player) -> str:
+    """For WHOAMI: " Rival: Bramble." or nothing."""
+    name = rival(engine, player)
+    return f" Rival: {name}." if name else ""
+
+
 def on_fight(winner: Player, loser: Player) -> list[Outcome]:
     """A FIGHT or a meeting on the map, won."""
+    if not loser.npc and winner.id:
+        tally(loser, f"beaten-by:{winner.id}")      # their rival, for show
     if winner.npc:
         return []
+    out = _trophy(winner, loser)
+    out.extend(_fight_feats(winner, loser))
+    return out
+
+
+def _fight_feats(winner: Player, loser: Player) -> list[Outcome]:
     wins = tally(winner, "fights-won")
     out = award(winner, "first-blood")
     if wins >= 10:

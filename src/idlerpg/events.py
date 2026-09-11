@@ -47,6 +47,50 @@ SLOTS = {
 # followed it; the numbers were always the original's.
 CRITICAL_FACTOR = {"good": 50, "evil": 20, "neutral": 35}
 
+# The original gives the good a tenth more item strength in a battle and the
+# evil a tenth less. Off here (all 1.0) until the harness says what it costs:
+# it is the one alignment rule that changes who wins.
+MORAL_BATTLE = {"good": 1.0, "neutral": 1.0, "evil": 1.0}
+
+# The original challenges someone on every level-up. Ours starts at the level
+# where challenges stop being declined; 999 turns it off.
+LEVELUP_BATTLE_FROM = 25
+
+# A mount carries a quest party like this many ranks of Stride.
+MOUNT_STRIDE = 2
+# What marks a unique item, and the mount among them, in Item.tag.
+UNIQUE_TAG = "a"
+MOUNT_TAG = "mount"
+# How uniques turn up: from this level, on about this many item finds.
+UNIQUE_FROM = 25
+UNIQUE_ODDS = 40
+
+
+@dataclass(frozen=True)
+class Unique:
+    """One of the realm's eight named items: better than the curve allows,
+    each in its own slot and behind its own level. The Courser is the mount,
+    which carries a quest party; the rest are strength and a story."""
+
+    name: str
+    slot: str
+    from_level: int
+    value: int          # the least it is worth
+    spread: int         # and how much above that it can roll
+    tag: str = UNIQUE_TAG
+
+
+UNIQUES = [
+    Unique("the Lantern of Small Mercies", "charm", 25, 75, 20),
+    Unique("the Kumquat of Ages", "amulet", 30, 80, 20),
+    Unique("the Seven-League Courser", "boots", 30, 80, 20, tag=MOUNT_TAG),
+    Unique("the Last Honest Ledger", "tunic", 35, 85, 20),
+    Unique("the Bell That Must Not Ring", "helm", 40, 90, 20),
+    Unique("the Moon-Rake", "weapon", 45, 95, 25),
+    Unique("the Crown of Minor Kings", "leggings", 50, 100, 25),
+    Unique("the Door That Was a Mimic", "shield", 55, 105, 25),
+]
+
 # Alignment tuning, kept together so it can be adjusted as the realm is
 # watched. Good and evil decide critical strikes and the goodness and evilness
 # events; the law-chaos axis decides how hard luck lands.
@@ -153,11 +197,22 @@ def find_item(player, rng: random.Random) -> Outcome | None:
     slot = rng.choice(list(SLOTS))
     level = roll_item_level(player.level, rng)
     tag = ""
+    named = ""
 
-    # From level 25 a player can turn up a unique, far above the normal curve.
-    if player.level >= 25 and rng.randrange(40) < 1:
-        level = 50 + rng.randrange(25)
-        tag = "a"
+    # From level 25 a find can turn up one of the realm's eight named
+    # uniques, far above the normal curve - whichever the character is deep
+    # enough for, and in that item's own slot. The roll comes first and the
+    # slot follows it: needing a random slot to match as well would put each
+    # unique a few hundred level-ups away, which is nobody's lifetime. A
+    # nameless unique besides would only out-number the eight and swamp
+    # their worth, so there is none.
+    if player.level >= UNIQUE_FROM and rng.randrange(UNIQUE_ODDS) < 1:
+        choices = [u for u in UNIQUES if player.level >= u.from_level]
+        if choices:
+            unique = rng.choice(choices)
+            slot = unique.slot
+            level = unique.value + rng.randrange(unique.spread)
+            tag, named = unique.tag, unique.name
 
     current = next((i for i in player.items if i.slot == slot), None)
     if current is None or level <= current.value:
@@ -165,6 +220,12 @@ def find_item(player, rng: random.Random) -> Outcome | None:
     old = current.value
     current.value = level
     current.tag = tag
+    if named:
+        return Outcome(
+            f"{player.name} found {named}, a level {level} {SLOTS[slot]}! "
+            f"Their old level {old} {SLOTS[slot]} is discarded.",
+            kind="item",
+        )
     return Outcome(
         f"{player.name} found a level {level} {SLOTS[slot]}! "
         f"Their old level {old} {SLOTS[slot]} is discarded.",
@@ -255,11 +316,18 @@ def item_sum(player) -> int:
     return sum(i.value for i in player.items)
 
 
+def battle_strength(player) -> int:
+    """What a player brings to a battle: their items, the Champion perk, and
+    the good-and-evil modifier if it is switched on."""
+    moral = MORAL_BATTLE.get(player.alignment.value, 1.0)
+    return max(1, int(item_sum(player) * champion(player) * moral))
+
+
 def battle(challenger, opponent, rng: random.Random) -> list[Outcome]:
     """Pit two players against each other, rolling against their item sums."""
     out: list[Outcome] = []
-    my_sum = max(1, int(item_sum(challenger) * champion(challenger)))
-    opp_sum = max(1, int(item_sum(opponent) * champion(opponent)))
+    my_sum = battle_strength(challenger)
+    opp_sum = battle_strength(opponent)
     my_roll = rng.randrange(my_sum)
     opp_roll = rng.randrange(opp_sum)
 

@@ -554,6 +554,9 @@ class DiscordAdapter(discord.Client):
             embed.add_field(name="Prestige", value=f"★{player.prestige}")
         earned = sum(1 for a in player.achievements if a.key in achievements.BY_KEY)
         embed.add_field(name="Achievements", value=f"{earned} of {len(achievements.FEATS)}")
+        nemesis = achievements.rival(self.engine, player)
+        if nemesis:
+            embed.add_field(name="Rival", value=esc(nemesis))
         if player.keepsakes:
             embed.add_field(name="Keepsakes", inline=False,
                             value=esc(", ".join(k.name for k in player.keepsakes))[:1024])
@@ -812,6 +815,7 @@ class DiscordAdapter(discord.Client):
                 f"next level in {duration(player.next_ttl)}, "
                 f"alignment {player.alignment_name}.{seasonal.honours_text(player)}"
                 f"{achievements.summary(player)}"
+                f"{achievements.rival_line(self.engine, player)}"
             )
         elif verb.upper() in achievements.VERBS:
             await reply(achievements.command(
