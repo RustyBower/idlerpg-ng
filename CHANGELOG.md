@@ -3,7 +3,7 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.16.2 - unreleased
+## 0.16.2 - 2026-09-11
 
 - **Voice on IRC.** Players are voiced while they are logged in and in the
   channel, and lose it when they log out, as in the original. It takes ops in
