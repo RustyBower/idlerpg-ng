@@ -15,6 +15,10 @@ Releases before 0.11.0 are in the git history.
   once. The buttons keep working across restarts.
 - **`/whoami` is a card**: level, next level, alignment, items, prestige,
   achievements and keepsakes at a glance.
+- **The level charts go back to the beginning.** Level-ups have been
+  announced since the first day, and the old ones are read back out of the
+  event log and linked to their characters, once, at startup - so a chart
+  shows the whole climb rather than starting at 0.21.0.
 - *Operators:* slash commands need the bot invited with the
   `applications.commands` scope. Without it they are skipped with a warning,
   and the `!` commands work as before.

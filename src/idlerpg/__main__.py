@@ -10,6 +10,7 @@ import sys
 from sqlalchemy import create_engine as sa_create_engine
 from sqlalchemy.orm import Session
 
+from . import history
 from .adapters.irc import IRCAdapter
 from .config import Config
 from .engine import Engine
@@ -89,6 +90,9 @@ def main() -> int:
         engine = Engine(session, config.curve)
         engine.apply_owners(config.admins)
         engine.npc_max, engine.npc_realm = config.npc_max, config.npc_realm
+        # Once: the level-ups announced before the event log recorded who
+        # they were about, so the charts show the whole climb.
+        history.backfill(engine)
         adapter = IRCAdapter(engine, config)
         log.info(
             "connecting to %s:%s as %s in %s",
