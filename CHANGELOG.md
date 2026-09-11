@@ -3,6 +3,18 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.18.0 - unreleased
+
+- **Meetings on the map.** Two characters from level 10 who land on the same
+  tile fight, as in the original, on `FIGHT`'s terms - at most once a day for
+  any pair, and never two questers on the same quest. Tested first: about two
+  meetings a week each, and no level or strategy gained or lost beyond luck,
+  in a realm like the live one or at the level-60 wall.
+- **Names that pass for others are refused.** A new name, or an admin's
+  rename, may not mix alphabets, and may not pass for an existing
+  character's or an admin's name by case, accents, width, digits for letters
+  or letters of other alphabets that look Latin. Names already taken stand.
+
 ## 0.17.1 - 2026-09-11
 
 - **Only the logged in speak in the game channel.** With `IRC_MODERATE` the

@@ -744,7 +744,9 @@ scale with your level, so the higher you climb the more a slip costs.</p>
 game and no more than 5 levels below you. You both roll against your items, and the
 winner takes 5% of the loser's remaining time - but never more than 5% of what the
 winner's own level costs. Whoever is challenged is safe from challenges for a day,
-so nobody can be piled on, and beating newcomers wins next to nothing.</p>
+so nobody can be piled on, and beating newcomers wins next to nothing. Two
+characters who land on the same tile of the map fight too, on the same terms, at most
+once a day for any pair.</p>
 
 <h2>The climb</h2>
 <p class="muted">Each level costs {RP_STEP}&times; the last, so progress is gentle

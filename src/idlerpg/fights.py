@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import time
 
-from . import events
+from . import events, quests
 from .events import Outcome
 from .models import Player
 from .text import duration
@@ -34,6 +34,10 @@ MAX_BELOW = 5
 COOLDOWN = 24 * 3600
 SHIELD = 24 * 3600
 REACH_SHOWN = 8
+# Characters who land on one tile fight too, as in the original - on these
+# same terms, but chosen by the map, not by anyone. Walkers keep meeting the
+# same neighbours, so a pair fights at most once in this long.
+MEETING_COOLDOWN = 24 * 3600
 
 VERBS = frozenset({"FIGHT"})
 
@@ -97,10 +101,7 @@ def fight(engine, me: Player, them: Player, at: int) -> str:
     my_roll, their_roll = engine.rng.randrange(mine), engine.rng.randrange(theirs)
     won = my_roll >= their_roll
     winner, loser = (me, them) if won else (them, me)
-    cap = events.level_cost(winner, winner.level, engine.curve) * STAKE
-    amount = max(0, int(min(loser.next_ttl * STAKE, cap)))
-    winner.next_ttl -= amount       # past zero, the next tick levels them up
-    loser.next_ttl += amount
+    amount = _take(engine, winner, loser)
     me.fight_ready_at = at + COOLDOWN
     them.shield_until = at + SHIELD
     engine.announce([Outcome(
@@ -111,6 +112,51 @@ def fight(engine, me: Player, them: Player, at: int) -> str:
     if won:
         return f"You won: {duration(amount)} taken from {them.name}'s clock and off yours."
     return f"You lost: {them.name} took {duration(amount)} from your clock."
+
+
+def _take(engine, winner: Player, loser: Player) -> int:
+    """Move 5% of the loser's clock to the winner, at most 5% of the winner's
+    own level cost; returns how much."""
+    cap = events.level_cost(winner, winner.level, engine.curve) * STAKE
+    amount = max(0, int(min(loser.next_ttl * STAKE, cap)))
+    winner.next_ttl -= amount       # past zero, the next tick levels them up
+    loser.next_ttl += amount
+    return amount
+
+
+def meetings(engine, online: list[Player], at: int) -> list[Outcome]:
+    """Duels between those who share a tile: from level 10, a pair at most
+    once a day, and never two questers on the same quest - a journey's
+    party walks as one."""
+    tiles: dict[tuple[int, int], list[Player]] = {}
+    for p in online:
+        if p.level >= MIN_LEVEL:
+            tiles.setdefault((p.x, p.y), []).append(p)
+    crowds = [group for group in tiles.values() if len(group) > 1]
+    if not crowds:
+        return []
+    quest = quests.active_quest(engine.session)
+    questers = {q.player_id for q in quest.participants} if quest else set()
+    out = []
+    for group in crowds:
+        for i, a in enumerate(group):
+            for b in group[i + 1:]:
+                pair = (min(a.id, b.id), max(a.id, b.id))
+                if (a.id in questers and b.id in questers) or engine.met.get(pair, 0) > at:
+                    continue
+                engine.met[pair] = at + MEETING_COOLDOWN
+                out.append(_clash(engine, a, b))
+    return out
+
+
+def _clash(engine, a: Player, b: Player) -> Outcome:
+    sa, sb = strength(a), strength(b)
+    ra, rb = engine.rng.randrange(sa), engine.rng.randrange(sb)
+    winner, loser = (a, b) if ra >= rb else (b, a)
+    amount = _take(engine, winner, loser)
+    return Outcome(f"{a.name} [{ra}/{sa}] and {b.name} [{rb}/{sb}] crossed paths and "
+                   f"fought! {winner.name} takes {duration(amount)} from "
+                   f"{loser.name}'s clock.", kind="fight")
 
 
 def command(engine, player: Player | None, verb: str, args: list[str]) -> str:

@@ -111,7 +111,9 @@ level costs. Whoever is challenged is shielded from challenges for a day.
 The rules come from `python -m idlerpg.fairness` (below): sized by the loser,
 bullying newcomers wins next to nothing; capped by the winner, nobody wins
 days at the level-60 wall; and with no bonus, fights move time between
-players without making any.
+players without making any. As in the original, two characters from level 10
+who land on the same tile fight too, on the same terms - at most once a day
+for any pair, and never two questers on the same quest.
 
 **The map.** Characters drift at random through the middle 80% of the map,
 the heartland, and wander back in from the wilds at its rim. The realm's
@@ -208,8 +210,8 @@ types, logins that survive restarts, channel topics, admin commands, a
 balancing simulator, and a website with standings, a map, quest status,
 per-player pages and an event feed.
 
-Not yet: fights when players meet on the map, the original's eight named
-uniques, and items left lying on the map.
+Not yet: the original's eight named uniques, a battle at each level-up, and
+items left lying on the map.
 
 ## Tuning
 

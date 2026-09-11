@@ -18,7 +18,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import hash_password, verify_password
-from .text import check_class, check_name, duration, safe
+from .text import check_class, check_name, duration, safe, skeleton
 
 from .models import (
     Alignment,
@@ -33,7 +33,7 @@ from .models import (
     Presence,
     utcnow,
 )
-from . import events, npcs, quests
+from . import events, fights, npcs, quests
 from .events import Outcome
 from .rules import Curve, Penalty, penalty_seconds, ttl
 
@@ -117,6 +117,9 @@ class Engine:
         self.npc_max = 0
         self.npc_realm = 12
         self.npc_wait = 0.0
+        # Pairs who met on the map, and when they may fight again. Kept in
+        # memory: a restart can at worst let one pair meet twice in a day.
+        self.met: dict[tuple[int, int], int] = {}
 
     # ---------------------------------------------------------------- players
 
@@ -133,6 +136,11 @@ class Engine:
             # An owner's character was deleted; whoever takes the name must
             # not inherit the admin rights that come with it.
             raise RegistrationError("that name is reserved")
+        if any(skeleton(owner) == skeleton(name) for owner in self.owners):
+            raise RegistrationError("that name is reserved")
+        twin = self.lookalike(name)
+        if twin is not None:
+            raise RegistrationError(f"that name could pass for {twin.name}")
         if self.find_identity(platform, external_id) is not None:
             raise RegistrationError("that account already has a character")
 
@@ -350,6 +358,9 @@ class Engine:
         for player in online:
             if player.id not in walked:
                 events.move_player(player, events_map_x(), events_map_y(), self.rng)
+        # Two who land on one tile fight, as in the original: on FIGHT's
+        # terms, at most once a day for any pair.
+        announcements.extend(fights.meetings(self, online, fights.now()))
 
         announcements.extend(self._quest_events(online, elapsed_seconds))
 
@@ -566,10 +577,21 @@ class Engine:
         other = self.find_player(name)
         if other is not None and other.id != player.id:
             raise RegistrationError(f"{name} is already taken")
+        twin = self.lookalike(name, player)
+        if twin is not None:
+            raise RegistrationError(f"that name could pass for {twin.name}")
         old, player.name = player.name, name
         self.session.commit()
         self._pending.append(Outcome(f"{old} is now known as {name}.", kind="rename"))
         return name
+
+    def lookalike(self, name: str, player: Player | None = None) -> Player | None:
+        """Another character whose name could pass for ``name`` - same
+        skeleton - so nobody can register or be renamed into a disguise.
+        Names from before this check stand as they are."""
+        shape = skeleton(name)
+        return next((p for p in self.all_players()
+                     if p is not player and skeleton(p.name) == shape), None)
 
     def set_class(self, player: Player, text: str) -> None:
         try:

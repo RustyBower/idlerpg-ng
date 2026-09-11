@@ -151,6 +151,55 @@ class TestReach:
         assert npc.shield_until             # and it is shielded, like anyone
 
 
+class TestMeetings:
+    def met(self, engine):
+        return fights.meetings(engine, engine.online_players(), fights.now())
+
+    def together(self, *players):
+        for p in players:
+            p.x, p.y = 200, 200
+
+    def test_two_on_one_tile_fight_once_a_day(self, engine, monkeypatch):
+        a = fighter(engine, "a", items=10**6, next_ttl=50_000)
+        b = fighter(engine, "b", items=0, next_ttl=100_000)
+        self.together(a, b)
+        [said] = self.met(engine)
+        assert "crossed paths" in said.message
+        cap = int(ttl(20, engine.curve) * 0.05)
+        assert a.next_ttl == 50_000 - cap and b.next_ttl == 100_000 + cap
+        assert self.met(engine) == []                    # the same pair, the same day
+        later(monkeypatch, DAY)
+        assert len(self.met(engine)) == 1
+
+    def test_meetings_leave_the_daily_fight_alone(self, engine):
+        a, b = fighter(engine, "a"), fighter(engine, "b")
+        self.together(a, b)
+        self.met(engine)
+        assert not a.fight_ready_at and not b.shield_until
+
+    def test_nobody_under_10_and_nobody_offline(self, engine):
+        a, b = fighter(engine, "a"), fighter(engine, "b", level=9)
+        c = fighter(engine, "c")
+        engine.set_presence(Platform.IRC, "c", Presence.OFFLINE)
+        self.together(a, b, c)
+        assert self.met(engine) == []
+
+    def test_questers_on_one_quest_walk_together_in_peace(self, engine):
+        from idlerpg import quests
+        party = [fighter(engine, f"q{i}", level=45) for i in range(4)]
+        quests.start(engine.session, party, engine.rng, 500, 500)
+        self.together(*party)
+        assert self.met(engine) == []
+
+    def test_the_tick_finds_them(self, engine, monkeypatch):
+        from idlerpg import events
+        monkeypatch.setattr(events, "move_player", lambda *a: None)   # stand still
+        a, b = fighter(engine, "a"), fighter(engine, "b")
+        self.together(a, b)
+        said = [o.message for o in engine.tick(1)]
+        assert any("crossed paths" in m for m in said)
+
+
 class TestOnThePlatforms:
     def test_irc(self, engine):
         from idlerpg.adapters.irc import IRCAdapter, parse

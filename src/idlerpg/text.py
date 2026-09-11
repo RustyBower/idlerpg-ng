@@ -71,6 +71,43 @@ def _stacked_marks(text: str) -> bool:
     return False
 
 
+# Scripts that read as one: Japanese mixes kanji and kana, Korean hangul and
+# hanja.
+_SCRIPT_FAMILY = {"HIRAGANA": "CJK", "KATAKANA": "CJK", "KATAKANA-HIRAGANA": "CJK",
+                  "HANGUL": "CJK", "IDEOGRAPHIC": "CJK"}
+
+
+def _scripts(name: str) -> set[str]:
+    """The alphabets a name's letters come from: LATIN, CYRILLIC, GREEK..."""
+    found = set()
+    for c in name:
+        if unicodedata.category(c)[0] == "L":
+            word = unicodedata.name(c, "UNKNOWN").split()[0]
+            found.add(_SCRIPT_FAMILY.get(word, word))
+    return found
+
+
+# Letters of other alphabets that pass for Latin ones, and digits that pass
+# for letters, after case folding.
+_LOOKALIKE = str.maketrans({
+    "а": "a", "в": "b", "е": "e", "һ": "h", "н": "h", "і": "i", "ј": "j", "к": "k",
+    "м": "m", "о": "o", "р": "p", "с": "c", "т": "t", "у": "y", "х": "x", "ѕ": "s",
+    "ԁ": "d", "ԛ": "q", "ԝ": "w",
+    "α": "a", "β": "b", "ε": "e", "η": "n", "ι": "i", "κ": "k", "ν": "v", "ο": "o",
+    "ρ": "p", "τ": "t", "υ": "u", "χ": "x", "ω": "w",
+    "0": "o", "1": "l", "|": "l",
+})
+
+
+def skeleton(name: str) -> str:
+    """What a name looks like, near enough: names with one skeleton can pass
+    for each other. Folds width, case and accents, letters of other alphabets
+    that look Latin, capital I as l, and rn as m."""
+    text = unicodedata.normalize("NFKD", name.replace("I", "l"))
+    text = "".join(c for c in text if not unicodedata.combining(c)).casefold()
+    return text.translate(_LOOKALIKE).replace("rn", "m")
+
+
 def check_name(name: str) -> str:
     """The name to store, or ValueError saying what is wrong with it.
 
@@ -88,6 +125,10 @@ def check_name(name: str) -> str:
         if unicodedata.category(c)[0] in "LMN" or c in NAME_PUNCTUATION:
             continue
         raise ValueError("names may use letters, digits and - _ . ' only")
+    if len(_scripts(name)) > 1:
+        # "Rustу" with a Cyrillic у, or a full-width letter among plain ones:
+        # made to pass for someone else.
+        raise ValueError("names may not mix alphabets")
     if name.casefold() in RESERVED:
         raise ValueError("that name is reserved")
     return name
