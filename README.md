@@ -103,6 +103,14 @@ each level costs a quarter more than the last: 65 is seven weeks on, 70 half a
 year, 80 six years. Waiting earns more points at a real price, and 60 is where
 most characters will want to begin again.
 
+**NPCs** make up the numbers in a small realm, so quests, team battles and
+fights have enough people. While fewer than `NPC_REALM` characters have been
+about in the last week, NPCs join - `NPC_MAX` at most - and they set off for
+distant lands as people arrive, keeping their level for next time. They play
+like an average player: they talk now and then and wander off, paying the same
+penalties, but never on a quest, so no party loses one to a bot. They never
+prestige, nobody can log in as one, and the site marks them `NPC`.
+
 **Events** are composed from the realm's own lore: thirty named places on the
 map, a cast of creatures and helpers, and small grammars that make tens of
 thousands of distinct calamities, godsends and quests, mixed with hand-written
@@ -245,6 +253,8 @@ length does not change the game.
 | `RP_BASE` / `RP_STEP` | `600` / `1.12` | the level curve; the website reads these too |
 | `RP_PENALTY_STEP` | `1.10` | how fast penalties grow with level |
 | `RP_POST_CAP_STEP` | `1.25` | how much more each level past 60 costs than the last; `linear` for the original's day a level |
+| `NPC_MAX` | `0` | the most NPCs at once; `0` for none |
+| `NPC_REALM` | `12` | NPCs join while fewer characters than this have been about in the last week, and leave once there are 3 more |
 | `MAP_X` / `MAP_Y` | `500` / `500` | the realm's size; the website reads these too |
 | `EVENTS_FILE` | | a classic `events.txt` whose lines join the realm's own |
 | `LOG_LEVEL` | `INFO` | `DEBUG` logs every IRC line |

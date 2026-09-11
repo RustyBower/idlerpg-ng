@@ -88,6 +88,7 @@ def main() -> int:
     with Session(db) as session:
         engine = Engine(session, config.curve)
         engine.apply_owners(config.admins)
+        engine.npc_max, engine.npc_realm = config.npc_max, config.npc_realm
         adapter = IRCAdapter(engine, config)
         log.info(
             "connecting to %s:%s as %s in %s",

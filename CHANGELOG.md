@@ -5,6 +5,10 @@ Releases before 0.11.0 are in the git history.
 
 ## 0.16.0 - unreleased
 
+- **NPCs** make up the numbers in a small realm: they join while it is quiet
+  and leave as people arrive, keeping their level for next time. They idle,
+  talk and wander off like an average player, never fail a quest, never
+  prestige, and are marked `NPC` on the site.
 - **Prestige.** From level 60, `PRESTIGE` shows what starting over would do
   and `PRESTIGE confirm` does it: back to level 0 with fresh items, keeping
   name, alignment and perks, for a ★ on the site - where prestige now ranks
@@ -26,6 +30,7 @@ Releases before 0.11.0 are in the git history.
   models kinds of player (`--profile quiet|average|chatty`) and curves
   (`--rp-step`, `--penalty-step`, `--post-cap-step`).
 - *Operators:* `RP_POST_CAP_STEP` (default `1.25`; `linear` for the original).
+  `NPC_MAX` (default `0`, none) and `NPC_REALM` (default `12`) turn NPCs on.
 
 ## 0.15.0 - 2026-09-10
 

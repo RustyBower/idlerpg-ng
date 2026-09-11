@@ -36,6 +36,7 @@ from . import auth, events
 from . import engine as engine_module
 from .engine import Engine
 from .models import Base, EventLog, PenaltyRecord, Platform, Presence
+from .npcs import PROFILES, Habits  # the habits NPCs play by, and players here
 from .rules import Curve, Penalty, seconds_to_reach, ttl
 from .text import duration
 
@@ -51,22 +52,6 @@ NINE = [
 # Event kinds worth reporting; registrations and the like are not.
 KINDS = ["hog", "calamity", "godsend", "battle", "goodness", "evilness",
          "chaos", "balance", "war", "quest", "item", "levelup"]
-
-
-@dataclass
-class Habits:
-    talk_per_day: float = 2.0       # lines said in the game channel
-    absences_per_week: float = 1.0  # quits, each followed by time away
-    away_hours: float = 8.0         # mean length of an absence
-
-
-# Kinds of player, since an alignment's worth depends on how you play: a
-# penalty cut is worth far more to someone who talks than to someone who idles.
-PROFILES = {
-    "quiet": Habits(talk_per_day=0.2, absences_per_week=0.5, away_hours=8),
-    "average": Habits(talk_per_day=1.0, absences_per_week=1.0, away_hours=8),
-    "chatty": Habits(talk_per_day=4.0, absences_per_week=2.0, away_hours=6),
-}
 
 
 @dataclass

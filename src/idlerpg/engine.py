@@ -33,7 +33,7 @@ from .models import (
     Presence,
     utcnow,
 )
-from . import events, quests
+from . import events, npcs, quests
 from .events import Outcome
 from .rules import Curve, Penalty, penalty_seconds, ttl
 
@@ -112,6 +112,11 @@ class Engine:
         # Things that happened outside a tick (a quest failing because someone
         # spoke) and still need announcing on the next one.
         self._pending: list[Outcome] = []
+        # NPCs top the realm up to npc_realm characters, npc_max of them at
+        # most (NPC_REALM, NPC_MAX); none unless configured. See npcs.py.
+        self.npc_max = 0
+        self.npc_realm = 12
+        self.npc_wait = 0.0
 
     # ---------------------------------------------------------------- players
 
@@ -313,6 +318,8 @@ class Engine:
             select(Player)
             .options(selectinload(Player.identities), selectinload(Player.items))
         ).all()
+        # The realm's own characters come, go and talk before anyone earns.
+        self._pending.extend(npcs.tend(self, players, elapsed_seconds))
 
         announcements: list[Outcome] = list(self._pending)
         self._pending.clear()

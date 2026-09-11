@@ -97,6 +97,10 @@ class Config:
     admins: tuple[str, ...] = field(default_factory=lambda: tuple(
         n.strip() for n in os.environ.get("IDLERPG_ADMINS", "").split(",") if n.strip()
     ))
+    # NPCs top the realm up to npc_realm characters about, npc_max of them at
+    # most. None by default; see npcs.py.
+    npc_max: int = field(default_factory=lambda: int(os.environ.get("NPC_MAX", "0")))
+    npc_realm: int = field(default_factory=lambda: int(os.environ.get("NPC_REALM", "12")))
     irc: IRCConfig = field(default_factory=IRCConfig)
     discord: DiscordConfig = field(default_factory=DiscordConfig)
     curve: Curve = field(

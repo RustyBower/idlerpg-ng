@@ -97,7 +97,9 @@ def load_players():
                 players.append({
                     "username": p.name, "level": p.level,
                     "class": p.character_class or "", "next": p.next_ttl or 0,
-                    "nick": nick, "online": any(plats.values()),
+                    "nick": nick,
+                    "online": any(plats.values()) or p.npc == "present",
+                    "npc": bool(p.npc),
                     "x": p.x or 0, "y": p.y or 0,
                     "created": p.created, "lastlogin": p.last_login,
                     "alignment": p.alignment_name.title(),
@@ -252,6 +254,7 @@ padding:.1rem .42rem;border-radius:4px;margin-right:.3rem;border:1px solid var(-
 .plat.irc.live{background:var(--soft);color:var(--accent);border-color:var(--accent)}
 .plat.discord.live{background:#5865f21a;color:#5865f2;border-color:#5865f2}
 @media (prefers-color-scheme:dark){.plat.discord.live{color:#9aa6ff;border-color:#5865f2}}
+.plat.npc{font-style:italic}
 .plat.idle{opacity:.45}
 .plat.none{opacity:.4;border:none}
 /* Legend swatches use the pin fills directly, so the key cannot drift from
@@ -410,6 +413,10 @@ PLATFORM_LABEL = {"irc": "IRC", "discord": "Discord"}
 
 def platform_badges(player):
     """Show where a player is playing from, and which of those are live."""
+    if player.get("npc"):
+        live = "live" if player.get("online") else "idle"
+        return (f'<span class="plat npc {live}" title="An NPC: one of the '
+                f'realm&#39;s own characters, not a person">NPC</span>')
     out = []
     for plat in ("irc", "discord"):
         if plat not in player.get("platforms", {}):

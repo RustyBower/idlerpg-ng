@@ -159,7 +159,7 @@ def _delold(engine, actor, args):
         raise Refused("At least one day.")
     cutoff = utcnow() - timedelta(days=days)
     stale = [p for p in engine.all_players()
-             if not p.is_idling and not p.is_admin
+             if not p.is_idling and not p.is_admin and not p.npc  # NPCs tend themselves
              and _aware(p.last_login or p.created) < cutoff]
     names = ", ".join(p.name for p in stale) or "nobody"
     if len(args) < 2 or args[1].lower() != "confirm":

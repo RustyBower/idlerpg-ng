@@ -97,6 +97,9 @@ class Player(Base):
     points: Mapped[int] = mapped_column(Integer, default=0)
     perks: Mapped[str] = mapped_column(String(255), default="{}")
     is_admin: Mapped[bool] = mapped_column(default=False)
+    # None for a person. For the realm's own characters, the NPCs, where they
+    # are: present, away or benched. See npcs.py.
+    npc: Mapped[str | None] = mapped_column(String(16), default=None)
     # Position in the realm, for the map and journey quests.
     x: Mapped[int] = mapped_column(Integer, default=0)
     y: Mapped[int] = mapped_column(Integer, default=0)
@@ -117,7 +120,10 @@ class Player(Base):
         The cross-platform rule: present and silent on **at least one** linked
         platform. Being on two platforms neither punishes the player nor pays
         them twice, because the engine credits the character, not a connection.
+        An NPC has no platforms; it earns while present.
         """
+        if self.npc:
+            return self.npc == "present"
         return any(
             identity.presence in (Presence.ACTIVE, Presence.AWAY)
             for identity in self.identities
@@ -274,6 +280,7 @@ ADDED_COLUMNS = [
     ("player", "prestige", "INTEGER DEFAULT 0"),
     ("player", "points", "INTEGER DEFAULT 0"),
     ("player", "perks", "VARCHAR(255) DEFAULT '{}'"),
+    ("player", "npc", "VARCHAR(16)"),
 ]
 
 
