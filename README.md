@@ -167,6 +167,12 @@ gives 1.0 less time away; events push it up and penalties pull it down.
 `--set` tries a tuning number from `events.py` without editing it, and runs are
 seeded, so a change can be compared against the same luck.
 
+`python -m idlerpg.fairness` tests a feature's fairness before it is built -
+first `FIGHT`, the proposed daily duel. It runs a realm shaped like the live
+one, bolts candidate rules and strategies (bullying the weakest, fighting at
+random, aiming high, abstaining) onto the engine from outside, and reports
+each level tier's and strategy's pace against the same seed without fights.
+
 ## The two decisions that shape this
 
 **One character, many platform identities.** A `Player` is the character;

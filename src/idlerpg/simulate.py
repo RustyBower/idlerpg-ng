@@ -63,6 +63,7 @@ class Result:
     penalties: dict = field(default_factory=dict)
     events: dict = field(default_factory=dict)
     seed: int = 0
+    start: int = 0      # the level it began at
 
 
 def parse_roster(spec: str | None, per_alignment: int) -> list[str]:
@@ -115,10 +116,19 @@ def _code(alignment: str) -> str:
 
 def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
         habits: Habits | None = None, start_level: int = 30,
-        curve: Curve | None = None) -> list[Result]:
-    """Simulate ``days`` of the realm and return how each player fared."""
+        curve: Curve | None = None, levels: list[int] | None = None,
+        hook=None) -> list[Result]:
+    """Simulate ``days`` of the realm and return how each player fared.
+
+    ``levels`` gives each player of the roster its own start level, for a
+    realm of mixed levels. ``hook(realm, players, elapsed, step)`` is called
+    every step before the tick, to try out rules the game does not have yet.
+    """
     if len(roster) > 99 * len(NINE):
         raise ValueError("at most 99 players of each alignment")
+    levels = list(levels) if levels is not None else [start_level] * len(roster)
+    if len(levels) != len(roster):
+        raise ValueError("one start level per player")
     habits = habits or Habits()
     curve = curve or Curve()
     rng = random.Random(seed)             # the players' habits
@@ -133,7 +143,7 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
     engine_module.hash_password = partial(auth.hash_password, iterations=1)
     try:
         players, seen = [], Counter()
-        for alignment in roster:
+        for alignment, start in zip(roster, levels):
             code = _code(alignment)
             name = f"{code}{seen[code]:02d}"
             seen[code] += 1
@@ -142,10 +152,10 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
             # Start as a player who climbed here would: with a find at every
             # level so far. Empty-handed, a realm starting high fights with
             # nothing, and battles - a share of the clock each - swamp it.
-            for level in range(1, start_level + 1):
+            for level in range(1, start + 1):
                 p.level = level
                 events.find_item(p, kit)
-            p.level, p.next_ttl = start_level, int(ttl(start_level, curve))
+            p.level, p.next_ttl = start, int(ttl(start, curve))
             players.append((p, alignment))
         session.commit()
         session.query(EventLog).delete()   # registrations are not the game
@@ -170,6 +180,8 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
                     realm.set_presence(Platform.IRC, p.name, Presence.OFFLINE)
                     away_until[p.id] = elapsed + rng.expovariate(
                         1 / (habits.away_hours * 3600))
+            if hook is not None:
+                hook(realm, players, elapsed, step)
             realm.tick(step)
             elapsed += step
 
@@ -184,15 +196,15 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
                 select(PenaltyRecord.player_id, PenaltyRecord.kind, PenaltyRecord.seconds)):
             penalties[by_id[pid]][kind] += seconds
 
-        base = seconds_to_reach(start_level, curve)
         results = []
-        for p, alignment in players:
+        for (p, alignment), start in zip(players, levels):
+            base = seconds_to_reach(start, curve)
             earned = seconds_to_reach(p.level, curve) + ttl(p.level, curve) - p.next_ttl - base
             results.append(Result(
                 name=p.name, alignment=alignment, level=p.level,
                 pace=earned / (days * DAY),
                 penalties=dict(penalties[p.name]), events=dict(counts[p.name]),
-                seed=seed,
+                seed=seed, start=start,
             ))
         return results
     finally:
