@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import statistics
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -58,6 +60,15 @@ class Habits:
     away_hours: float = 8.0         # mean length of an absence
 
 
+# Kinds of player, since an alignment's worth depends on how you play: a
+# penalty cut is worth far more to someone who talks than to someone who idles.
+PROFILES = {
+    "quiet": Habits(talk_per_day=0.2, absences_per_week=0.5, away_hours=8),
+    "average": Habits(talk_per_day=1.0, absences_per_week=1.0, away_hours=8),
+    "chatty": Habits(talk_per_day=4.0, absences_per_week=2.0, away_hours=6),
+}
+
+
 @dataclass
 class Result:
     name: str
@@ -66,6 +77,7 @@ class Result:
     pace: float
     penalties: dict = field(default_factory=dict)
     events: dict = field(default_factory=dict)
+    seed: int = 0
 
 
 def parse_roster(spec: str | None, per_alignment: int) -> list[str]:
@@ -188,6 +200,7 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
                 name=p.name, alignment=alignment, level=p.level,
                 pace=earned / (days * DAY),
                 penalties=dict(penalties[p.name]), events=dict(counts[p.name]),
+                seed=seed,
             ))
         return results
     finally:
@@ -195,21 +208,55 @@ def run(roster: list[str], days: float = 30, step: int = 300, seed: int = 1,
         session.close()
 
 
+def _one(job: tuple) -> list[Result]:
+    """One seeded run in a worker process, with its own overrides applied."""
+    roster, days, step, seed, habits, start_level, overrides = job
+    restore = apply_overrides(overrides)
+    try:
+        return run(roster, days=days, step=step, seed=seed, habits=habits,
+                   start_level=start_level)
+    finally:
+        restore()
+
+
+def run_many(roster: list[str], seeds: list[int], jobs: int = 1,
+             overrides: list[str] | None = None, **kwargs) -> list[Result]:
+    """Several seeded runs, in parallel across ``jobs`` processes. Every
+    worker applies the same overrides, so the runs differ only by luck."""
+    work = [(roster, kwargs.get("days", 30), kwargs.get("step", 300), seed,
+             kwargs.get("habits") or Habits(), kwargs.get("start_level", 30),
+             list(overrides or [])) for seed in seeds]
+    if jobs <= 1:
+        return [r for job in work for r in _one(job)]
+    with ProcessPoolExecutor(max_workers=jobs) as pool:
+        return [r for batch in pool.map(_one, work) for r in batch]
+
+
 def summarise(results: list[Result], days: float) -> list[dict]:
-    """One row per alignment, in the order of the nine."""
+    """One row per alignment, in the order of the nine.
+
+    pace_ci is the half-width of a 95% confidence interval on the mean, over
+    every player of that alignment in every seed. relative is the mean's
+    distance from the whole realm's, which is what balance is about: how
+    much everyone talks moves every alignment together.
+    """
     weeks = days / 7
+    overall = statistics.mean(r.pace for r in results)
     rows = []
     for alignment in NINE:
         group = [r for r in results if r.alignment == alignment]
         if not group:
             continue
         paces = [r.pace for r in group]
+        mean = statistics.mean(paces)
+        ci = 1.96 * statistics.stdev(paces) / math.sqrt(len(paces)) if len(paces) > 1 else 0.0
         rows.append({
             "alignment": alignment,
             "players": len(group),
             "level": statistics.mean(r.level for r in group),
-            "pace": statistics.mean(paces),
-            "pace_spread": statistics.pstdev(paces),
+            "pace": mean,
+            "pace_ci": ci,
+            "relative": mean / overall - 1,
             "penalty_seconds": statistics.mean(sum(r.penalties.values()) for r in group),
             "per_week": {k: sum(r.events.get(k, 0) for r in group) / len(group) / weeks
                          for k in KINDS},
@@ -217,18 +264,29 @@ def summarise(results: list[Result], days: float) -> list[dict]:
     return rows
 
 
-def report(rows: list[dict], days: float, step: int, seed: int, count: int) -> str:
+def spread(rows: list[dict]) -> float:
+    """How far apart the best and worst alignments are, relative to the realm."""
+    return max(r["relative"] for r in rows) - min(r["relative"] for r in rows)
+
+
+def report(rows: list[dict], days: float, step: int, seeds: list[int],
+           count: int, label: str = "") -> str:
     shown = ["hog", "calamity", "godsend", "battle", "goodness", "evilness",
              "chaos", "balance", "quest"]
-    head = (f"{'alignment':<16}{'n':>3}{'level':>7}{'pace':>7}{'±':>6}{'penalties':>11}"
-            + "".join(f"{k[:6]:>8}" for k in shown))
-    lines = [f"{days:g} days, {count} players, {duration(step)} ticks, seed {seed}. "
-             f"Events are per player per week.", "", head, "-" * len(head)]
+    head = (f"{'alignment':<16}{'n':>4}{'level':>7}{'pace':>7}{'±95%':>7}{'vs all':>8}"
+            f"{'penalties':>11}" + "".join(f"{k[:6]:>8}" for k in shown))
+    seeds_text = f"seed {seeds[0]}" if len(seeds) == 1 else f"seeds {seeds[0]}-{seeds[-1]}"
+    lines = [f"{label + ': ' if label else ''}{days:g} days, {count} players, "
+             f"{duration(step)} ticks, {seeds_text}. Events are per player per week.",
+             "", head, "-" * len(head)]
     for r in rows:
         lines.append(
-            f"{r['alignment']:<16}{r['players']:>3}{r['level']:>7.1f}{r['pace']:>7.3f}"
-            f"{r['pace_spread']:>6.3f}{duration(r['penalty_seconds']):>11}"
+            f"{r['alignment']:<16}{r['players']:>4}{r['level']:>7.1f}{r['pace']:>7.3f}"
+            f"{r['pace_ci']:>7.3f}{r['relative']:>+8.1%}"
+            f"{duration(r['penalty_seconds']):>11}"
             + "".join(f"{r['per_week'][k]:>8.2f}" for k in shown))
+    lines.append(f"Spread between the best and worst alignment: {spread(rows):.1%} of "
+                 f"the realm's pace.")
     return "\n".join(lines)
 
 
@@ -241,29 +299,40 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--per-alignment", type=int, default=3)
     parser.add_argument("--players", help='e.g. "lawful good:5,chaotic evil:5"')
     parser.add_argument("--start-level", type=int, default=30)
-    parser.add_argument("--talk", type=float, default=2.0, help="lines said per day")
-    parser.add_argument("--absences", type=float, default=1.0, help="quits per week")
-    parser.add_argument("--away-hours", type=float, default=8.0)
+    parser.add_argument("--profile", choices=sorted(PROFILES), default=None,
+                        help="a kind of player: sets --talk, --absences and --away-hours")
+    parser.add_argument("--talk", type=float, help="lines said per day (default 2)")
+    parser.add_argument("--absences", type=float, help="quits per week (default 1)")
+    parser.add_argument("--away-hours", type=float, help="mean absence (default 8)")
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--seeds", type=int, default=1,
+                        help="runs to average, seeded from --seed upward")
+    parser.add_argument("--jobs", type=int, default=1, help="runs at once, one per process")
     parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
                         help="override a tuning number in events.py, "
                              "e.g. LAWFUL_PENALTY=0.85 or LUCK.chaotic=1.25")
     parser.add_argument("--json", help="also write every player's results here")
     args = parser.parse_args(argv)
 
+    base = PROFILES[args.profile] if args.profile else Habits()
+    habits = Habits(
+        args.talk if args.talk is not None else base.talk_per_day,
+        args.absences if args.absences is not None else base.absences_per_week,
+        args.away_hours if args.away_hours is not None else base.away_hours,
+    )
     roster = parse_roster(args.players, args.per_alignment)
-    restore = apply_overrides(args.set)
-    try:
-        results = run(roster, days=args.days, step=args.step, seed=args.seed,
-                      habits=Habits(args.talk, args.absences, args.away_hours),
-                      start_level=args.start_level)
-    finally:
-        restore()
+    apply_overrides(args.set)()  # refuse unknown names before any work starts
+    seeds = list(range(args.seed, args.seed + args.seeds))
+    results = run_many(roster, seeds, jobs=args.jobs, overrides=args.set,
+                       days=args.days, step=args.step, habits=habits,
+                       start_level=args.start_level)
     rows = summarise(results, args.days)
-    print(report(rows, args.days, args.step, args.seed, len(roster)))
+    print(report(rows, args.days, args.step, seeds, len(roster),
+                 label=args.profile or ""))
     if args.json:
         with open(args.json, "w") as fh:
-            json.dump({"settings": vars(args), "alignments": rows,
+            json.dump({"settings": vars(args), "habits": habits.__dict__,
+                       "spread": spread(rows), "alignments": rows,
                        "players": [r.__dict__ for r in results]}, fh, indent=2)
     return 0
 

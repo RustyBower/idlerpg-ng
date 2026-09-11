@@ -64,3 +64,43 @@ class TestRun:
         assert "lawful good" in printed and "pace" in printed
         data = json.loads(out.read_text())
         assert len(data["players"]) == 9 and len(data["alignments"]) == 9
+
+
+class TestLargeRuns:
+    def test_seeds_are_averaged_and_tagged(self):
+        from idlerpg.simulate import run_many
+        results = run_many(parse_roster("lawful good,chaotic evil", 0), [1, 2],
+                           days=0.5, step=3600)
+        assert sorted({r.seed for r in results}) == [1, 2]
+        rows = summarise(results, 0.5)
+        assert all(r["players"] == 2 for r in rows)
+        assert all("pace_ci" in r and "relative" in r for r in rows)
+
+    def test_parallel_runs_match_serial_ones(self):
+        from idlerpg.simulate import run_many
+        roster = parse_roster("true neutral:2", 0)
+        serial = run_many(roster, [4, 5], jobs=1, days=0.5, step=3600)
+        parallel = run_many(roster, [4, 5], jobs=2, days=0.5, step=3600)
+        key = lambda rs: sorted((r.seed, r.name, r.level, round(r.pace, 9)) for r in rs)
+        assert key(serial) == key(parallel)
+
+    def test_overrides_reach_the_workers(self):
+        from idlerpg.simulate import run_many
+        roster = parse_roster("lawful good:3", 0)
+        kw = dict(days=1, step=1800, habits=simulate.Habits(talk_per_day=20))
+        plain = run_many(roster, [7], jobs=2, **kw)
+        halved = run_many(roster, [7], jobs=2, overrides=["LAWFUL_PENALTY=0.5"], **kw)
+        cost = lambda rs: sum(sum(r.penalties.values()) for r in rs)
+        assert cost(halved) < cost(plain)
+
+    def test_relative_pace_centres_on_the_realm(self):
+        from idlerpg.simulate import Result, spread
+        results = [Result("a", "lawful good", 1, 1.1), Result("b", "chaotic evil", 1, 0.9)]
+        rows = summarise(results, 7)
+        assert [round(r["relative"], 3) for r in rows] == [0.1, -0.1]
+        assert round(spread(rows), 3) == 0.2
+
+    def test_profiles_set_habits(self, capsys):
+        simulate.main(["--days", "0.5", "--step", "3600", "--players", "true neutral",
+                       "--profile", "quiet"])
+        assert capsys.readouterr().out.startswith("quiet:")
