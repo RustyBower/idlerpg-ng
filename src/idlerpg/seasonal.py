@@ -20,7 +20,7 @@ import time
 
 from sqlalchemy import delete, select
 
-from . import lore
+from . import achievements, lore
 from .events import Outcome
 from .models import Achievement, Player, SeasonMark
 from .rules import seconds_to_reach, ttl
@@ -108,16 +108,18 @@ def end(engine, name: str) -> list[Outcome]:
         _award(engine, p, f"{key}:{place + 1}", season.badge,
                f"the {PLACES[place]} devoted idler of {key}")
     kept = [p for gained, p, present in scored if present and gained >= KEPT_SHARE * present]
+    extra = []
     for p in kept:
         _award(engine, p, f"{key}:kept", season.badge, f"kept {key}")
+        extra.extend(achievements.award(p, f"{season.name.lower()}-kept", quiet=True))
     engine.session.commit()
     if not top:
-        return []
+        return extra
     names = [p.name for p in top]
     listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
     return [Outcome(f"The realm honours {key}'s most devoted idlers: {listed}. "
                     f"{len(kept)} kept the season, and wear {season.badge} beside "
-                    f"their names.", kind="season")]
+                    f"their names.", kind="season")] + extra
 
 
 def _award(engine, player: Player, key: str, badge: str, title: str) -> None:
@@ -128,7 +130,9 @@ def _award(engine, player: Player, key: str, badge: str, title: str) -> None:
 def best(achievements) -> list[Achievement]:
     """A character's honours, one per season: a place beats having kept it."""
     chosen: dict[str, Achievement] = {}
-    for a in sorted(achievements, key=lambda a: a.earned or dt.datetime.min):
+    for a in sorted(achievements, key=lambda a: (a.earned is not None, str(a.earned or ""))):
+        if ":" not in a.key:
+            continue            # an achievement, not a season's honour
         season, _, what = a.key.rpartition(":")
         if season not in chosen or chosen[season].key.endswith(":kept"):
             chosen[season] = a

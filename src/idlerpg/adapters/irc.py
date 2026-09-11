@@ -27,7 +27,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 
-from .. import __version__, admin, fights, prestige, seasonal
+from .. import __version__, achievements, admin, fights, prestige, seasonal
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
@@ -73,7 +73,7 @@ HELP = (
     "character too) | LOGOUT | WHOAMI | "
     "ALIGN <lawful|neutral|chaotic> <good|neutral|evil> | "
     "NEWPASS <current> <new> | REMOVEME <password> | "
-    "FIGHT [name] (once a day, from level 10) | "
+    "FIGHT [name] (once a day, from level 10) | ACHIEVEMENTS | "
     "PRESTIGE (from level 60) | PERKS | PERK <name> | "
     "MERGE <name> <password> (fold another character of yours into this one)"
 )
@@ -518,10 +518,14 @@ class IRCAdapter:
                 return
             self.notice(
                 nick,
-                f"{player.name}, level {player.level} {player.character_class}, "
+                f"{achievements.styled(player)}, level {player.level} {player.character_class}, "
                 f"next level in {duration(player.next_ttl)}, "
-                f"alignment {player.alignment_name}.{seasonal.honours_text(player)}",
+                f"alignment {player.alignment_name}.{seasonal.honours_text(player)}"
+                f"{achievements.summary(player)}",
             )
+        elif verb in achievements.VERBS:
+            self.notice_lines(nick, achievements.command(
+                self.engine, self.character_for_nick(nick), verb, args))
         elif verb in fights.VERBS:
             self.notice_lines(
                 nick, fights.command(self.engine, self.character_for_nick(nick), verb, args))

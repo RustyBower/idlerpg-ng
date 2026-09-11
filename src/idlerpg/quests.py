@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session, selectinload
 from . import events
 from .events import Outcome
 from .lore import LORE, place
+from . import achievements
 from .models import PenaltyRecord, Player, Quest, QuestParticipant, Setting, utcnow
 from .rules import Curve, Penalty, penalty_seconds
 from .text import duration
@@ -205,11 +206,14 @@ def _complete(session: Session, quest: Quest, party: list[Player]) -> list[Outco
     session.delete(quest)
     _rest(session, REST)
     session.commit()
-    return [Outcome(
+    done = [Outcome(
         f"{_names(party)} have done it: the quest is complete, and each of "
         f"them is 25% closer to their next level.",
         kind="quest",
     )]
+    for p in party:
+        done.extend(achievements.on_quest(p))
+    return done
 
 
 def fail(session: Session, player: Player,
@@ -239,4 +243,4 @@ def fail(session: Session, player: Player,
         f"party is set back fifteen steps each "
         f"({', '.join(costs)}), and the gods will offer no quest for 12 hours.",
         kind="quest",
-    )]
+    )] + achievements.on_loose_lips(player)

@@ -34,7 +34,7 @@ from .models import (
     Presence,
     utcnow,
 )
-from . import events, fights, lore, npcs, quests, seasonal
+from . import achievements, events, fights, lore, npcs, quests, seasonal
 from .events import Outcome
 from .rules import Curve, Penalty, penalty_seconds, ttl
 
@@ -125,6 +125,7 @@ class Engine:
         self.met: dict[tuple[int, int], int] = {}
         # Loaded on the first tick: None until then, "" for no season.
         self._season_seen: str | None = None
+        self._hour_wait = 0.0       # achievements that are checked hourly
 
     # ---------------------------------------------------------------- players
 
@@ -339,6 +340,10 @@ class Engine:
         self._pending.clear()
         announcements.extend(self._season_news())
         online = [p for p in players if p.is_idling]
+        self._hour_wait -= elapsed_seconds
+        if self._hour_wait <= 0:
+            self._hour_wait = 3600
+            announcements.extend(achievements.hourly(self, online))
 
         pace = self._season_pace(online)
         for player in online:
@@ -350,12 +355,13 @@ class Engine:
                     f"{player.name} the {player.character_class or 'wanderer'} "
                     f"reaches level {player.level}! "
                     f"Next level in {duration(remaining)}.",
-                    kind="levelup",
+                    kind="levelup", player_id=player.id, level=player.level,
                 ))
                 # Levelling is when the original hands out loot.
                 found = events.find_item(player, self.rng)
                 if found:
                     announcements.append(found)
+                announcements.extend(achievements.on_level(player, self.rng))
             player.next_ttl = int(remaining)
 
         announcements.extend(self._world_events(online, elapsed_seconds))
@@ -372,7 +378,8 @@ class Engine:
         announcements.extend(self._quest_events(online, elapsed_seconds))
 
         for outcome in announcements:
-            self.log_event(outcome.kind, outcome.message, commit=False)
+            self.log_event(outcome.kind, outcome.message, commit=False,
+                           player_id=outcome.player_id, level=outcome.level)
         self.session.commit()
         return announcements
 
@@ -429,7 +436,13 @@ class Engine:
         season = lore.current_season()
         if (season is not None and season.tricks
                 and events.should_fire(events.TRICK_INTERVAL, elapsed, count, self.rng)):
-            out.append(events.trick_or_treat(self.rng.choice(online), self.rng, self.curve))
+            who = self.rng.choice(online)
+            knock = events.trick_or_treat(who, self.rng, self.curve)
+            out.append(knock)
+            out.extend(achievements.on_knock(who, knock.kind == "treat", self.rng))
+        if (season is not None and season.eggs
+                and events.should_fire(achievements.EGG_INTERVAL, elapsed, count, self.rng)):
+            out.extend(achievements.egg_hunt(self.rng.choice(online), self.rng))
 
         if events.should_fire(events.TEAM_BATTLE_INTERVAL, elapsed, count, self.rng):
             out.extend(events.team_battle(
@@ -513,6 +526,7 @@ class Engine:
         )
         seconds = events.scale_penalty(player, seconds)
         player.next_ttl += seconds
+        achievements.quiet(player, achievements.now())
         if kind is not Penalty.QUEST:
             # A quester who talks, parts or quits fails it for the party.
             self._pending.extend(quests.fail(self.session, player, self.curve))
@@ -712,6 +726,8 @@ class Engine:
         self._pending.append(Outcome(
             f"{player.name} is now {player.alignment_name}.", kind="alignment",
         ))
+        self._pending.extend(achievements.on_align(player))
+        self.session.commit()
         return player.alignment_name
 
     # --------------------------------------------------------------- settings
@@ -774,8 +790,10 @@ class Engine:
 
     # ----------------------------------------------------------------- events
 
-    def log_event(self, kind: str, message: str, commit: bool = True) -> None:
-        self.session.add(EventLog(kind=kind, message=safe(message)[:1024]))
+    def log_event(self, kind: str, message: str, commit: bool = True,
+                  player_id: int | None = None, level: int | None = None) -> None:
+        self.session.add(EventLog(kind=kind, message=safe(message)[:1024],
+                                  player_id=player_id, level=level))
         if commit:
             self.session.commit()
 

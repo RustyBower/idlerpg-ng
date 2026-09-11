@@ -21,7 +21,7 @@ import logging
 
 import discord
 
-from .. import admin, fights, prestige, seasonal
+from .. import achievements, admin, fights, prestige, seasonal
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
@@ -46,6 +46,7 @@ HELP = (
     "one), `!align <lawful|neutral|chaotic> <good|neutral|evil>`, "
     "`!newpass <current> <new>`, "
     "`!removeme <password>`, `!fight [name]` (once a day, from level 10), "
+    "`!achievements`, "
     "`!prestige` (from level 60), `!perks`, "
     "`!perk <name>`, `!whoami`. Anything with a password goes in a DM."
 )
@@ -578,10 +579,15 @@ class DiscordAdapter(discord.Client):
                 await reply("No character linked to this account.")
                 return
             await reply(
-                f"{player.name}, level {player.level} {player.character_class}, "
+                f"{achievements.styled(player)}, level {player.level} {player.character_class}, "
                 f"next level in {duration(player.next_ttl)}, "
                 f"alignment {player.alignment_name}.{seasonal.honours_text(player)}"
+                f"{achievements.summary(player)}"
             )
+        elif verb.upper() in achievements.VERBS:
+            await reply(achievements.command(
+                self.engine, self.engine.player_for(Platform.DISCORD, external),
+                verb, args))
         elif verb.upper() in fights.VERBS:
             await reply(fights.command(
                 self.engine, self.engine.player_for(Platform.DISCORD, external),

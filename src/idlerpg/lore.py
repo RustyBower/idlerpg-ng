@@ -216,6 +216,7 @@ class Season:
     pace: float = 1.0               # everyone's clock runs this much faster
     catch_up: float = 1.0           # and theirs below the middle level, this much
     tricks: bool = False            # trick or treat
+    eggs: bool = False              # an egg hunt
 
     def covers(self, day) -> bool:
         md = (day.month, day.day)
@@ -311,7 +312,7 @@ SEASONS = [
                      "until the frogs stop singing"),
         taste="hares in a hurry, nesting griffins and frog princes who are still frogs",
         twist="Fresh starts: anyone below the realm's middle level earns 10% faster.",
-        badge="🌱", catch_up=1.10,
+        badge="🌱", catch_up=1.10, eggs=True,
     ),
 ]
 

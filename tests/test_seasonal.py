@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import create_engine as sa_engine
 from sqlalchemy.orm import Session
 
-from idlerpg import auth, events, fairness, lore, prestige, seasonal, web
+from idlerpg import achievements, auth, events, fairness, lore, prestige, seasonal, web
 from idlerpg import engine as engine_module
 from idlerpg.engine import Engine
 from idlerpg.models import Base, Platform
@@ -118,9 +118,10 @@ class TestHonours:
         people, _ = self.season(engine, monkeypatch, 9_000_000, 8_000_000, 7_000_000,
                                 31 * DAY * 0.6, 31 * DAY * 0.4)
         kept, idle = people[3], people[4]
-        assert [a.title for a in kept.achievements] == ["kept Hallowtide 2026"]
-        assert idle.achievements == []
-        assert kept.achievements[0].badge == "🎃"
+        honours = seasonal.best(kept.achievements)
+        assert [a.title for a in honours] == ["kept Hallowtide 2026"] and honours[0].badge == "🎃"
+        assert achievements.has(kept, "hallowtide-kept")      # and the achievement
+        assert seasonal.best(idle.achievements) == []
 
     def test_a_forced_or_short_season_honours_nobody(self, engine, monkeypatch):
         p = player(engine, "p")
@@ -148,7 +149,7 @@ class TestHonours:
         later(monkeypatch, 31)
         by_the_calendar(monkeypatch, (11, 1))
         engine.tick(1)
-        assert before > 0 and "most devoted" in p.achievements[0].title
+        assert before > 0 and any("most devoted" in a.title for a in p.achievements)
 
 
 class TestShown:

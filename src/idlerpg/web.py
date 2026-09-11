@@ -28,6 +28,7 @@ from .config import post_cap_step
 from .engine import MAP_X, MAP_Y
 from .lore import SEASONS, dates, heartland, season_named, season_on, today, upcoming
 from .seasonal import best as seasonal_best
+from .achievements import FEATS
 from .rules import Curve, seconds_to_reach, ttl
 from .text import duration, safe
 from .models import (
@@ -87,7 +88,7 @@ def load_players():
             rows = s.scalars(
                 select(Player).options(
                     selectinload(Player.identities), selectinload(Player.items),
-                    selectinload(Player.achievements),
+                    selectinload(Player.achievements), selectinload(Player.keepsakes),
                 )
             ).all()
             penalties = {}
@@ -114,6 +115,11 @@ def load_players():
                     "honours": [{"badge": a.badge, "title": a.title,
                                  "won": not a.key.endswith(":kept")}
                                 for a in seasonal_best(p.achievements)],
+                    "id": p.id,
+                    "title": p.title or "",
+                    "feats": {a.key: str(a.earned or "")[:10]
+                              for a in p.achievements if ":" not in a.key},
+                    "keepsakes": [(k.name, k.season) for k in p.keepsakes],
                     "x": p.x or 0, "y": p.y or 0,
                     "created": p.created, "lastlogin": p.last_login,
                     "alignment": p.alignment_name.title(),
@@ -273,6 +279,10 @@ padding:.1rem .42rem;border-radius:4px;margin-right:.3rem;border:1px solid var(-
 .season.soon{border-left-style:dashed;background:none;color:var(--muted)}
 .honour{margin-left:.3rem;font-size:.9em;cursor:help}
 .honour.won{text-shadow:0 0 6px gold}
+.ptitle{color:var(--muted);font-style:italic;font-weight:400}
+.feat-off{opacity:.4}
+.chart{width:100%;max-width:640px;height:auto}
+.chart .line{fill:none;stroke:var(--accent);stroke-width:2}
 .heartland{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:10 8;opacity:.45}
 .plat.idle{opacity:.45}
 .plat.none{opacity:.4;border:none}
@@ -509,10 +519,74 @@ calamities, godsends and quests draw on its own creatures, helpers, treasures an
 and each season bends one rule a little, for everyone alike. When a season ends, the realm
 honours its three most devoted idlers - those who made the most progress toward their next
 levels, so a newcomer can beat a veteran - and everyone who idled through at least half of
-it wears the season's badge beside their name.</p>
+it wears the season's badge beside their name. Each season also has achievements of its
+own and keepsakes to collect - masks in Hallowtide's treats, gifts on Midwinter Day, eggs
+in Springtide - and earning all of a season's achievements grants a title. Your page lists
+every achievement and how to earn it.</p>
 <table><thead><tr><th>Season</th><th>When</th><th>Expect</th><th>Twist</th></tr></thead>
 <tbody>{rows}</tbody></table>
 """
+
+
+def titled(p) -> str:
+    """", the Lantern-Bearer" after a name, for a title earned."""
+    return f'<span class="ptitle">, {E(p["title"])}</span>' if p.get("title") else ""
+
+
+def load_levels(player_id) -> list:
+    """(when, level) for each level-up recorded, oldest first."""
+    if not player_id:
+        return []
+    from .models import EventLog
+    try:
+        with Session(db()) as s:
+            return list(s.execute(
+                select(EventLog.at, EventLog.level)
+                .where(EventLog.player_id == player_id, EventLog.kind == "levelup")
+                .order_by(EventLog.at)))
+    except Exception:
+        return []
+
+
+def level_chart(points) -> str:
+    if len(points) < 2:
+        return ('<h2>Level history</h2><p class="muted">Level-ups are recorded from '
+                'version 0.21.0 on; the chart fills in as they come.</p>')
+    first, last = points[0][0], points[-1][0]
+    span = max(1.0, (last - first).total_seconds())
+    top = max(level for _, level in points) or 1
+    width, height = 600, 160
+    line = " ".join(f"{(at - first).total_seconds() / span * width:.1f},"
+                    f"{height - level / top * height:.1f}" for at, level in points)
+    return (f'<h2>Level history</h2><svg class="chart" viewBox="-4 -4 {width + 8} '
+            f'{height + 8}" role="img" aria-label="Level over time">'
+            f'<polyline points="{line}" class="line"/></svg>'
+            f'<p class="muted">From level {points[0][1]} on {E(str(first)[:10])} to level '
+            f'{points[-1][1]} on {E(str(last)[:10])}.</p>')
+
+
+def feats_table(player) -> str:
+    earned = player.get("feats", {})
+    rows = "".join(
+        f'<tr class="{"" if f.key in earned else "feat-off"}"><td>{E(f.badge)}</td>'
+        f'<td>{E(f.name)}</td><td class="muted">{E(f.text)}'
+        f'{" Title: " + E(f.title) + "." if f.title else ""}</td>'
+        f'<td class="num">{E(earned.get(f.key, ""))}</td></tr>'
+        for f in FEATS)
+    return (f'<h2>Achievements</h2><p class="muted">{len(earned)} of {len(FEATS)} earned.</p>'
+            f'<table><thead><tr><th></th><th>Achievement</th><th>How</th>'
+            f'<th class="num">Earned</th></tr></thead><tbody>{rows}</tbody></table>')
+
+
+def keepsakes_list(player) -> str:
+    found = player.get("keepsakes", [])
+    if not found:
+        return ('<h2>Keepsakes</h2><p class="muted">None yet. The seasons bring them: '
+                'masks in Hallowtide&#39;s treats, gifts at Midwinter, eggs in '
+                'Springtide.</p>')
+    items = "".join(f'<li>{E(name)} <span class="muted">({E(season)})</span></li>'
+                    for name, season in found)
+    return f'<h2>Keepsakes</h2><ul>{items}</ul>'
 
 
 def honours(p) -> str:
@@ -540,7 +614,8 @@ def page_index(players):
         f'<tr class="{"on" if p["online"] else "off"}">'
         f'<td class="rank">{i}</td>'
         f'<td class="who"><span class="dot {"on" if p["online"] else "off"}"></span>'
-        f'<a href="{link(p["username"])}">{E(p["username"])}</a>{star(p)}{honours(p)}</td>'
+        f'<a href="{link(p["username"])}">{E(p["username"])}</a>{titled(p)}{star(p)}'
+        f'{honours(p)}</td>'
         f'<td class="num">{p["level"]}</td><td>{E(p["class"])}</td>'
         f'<td class="num">{E(duration(p["next"]))}</td>'
         f'<td class="num">{p["itemsum"]}</td>'
@@ -705,7 +780,7 @@ def page_player(player):
 
     total_pen = sum(player["penalties"].values())
     status = "online" if player["online"] else "offline"
-    body = f"""<h2>{E(player["username"])}</h2>
+    body = f"""<h2>{E(player["username"])}{titled(player)}</h2>
 <div class="grid">
   <div class="stat"><div class="k">Level</div><div class="v">{player["level"]}</div></div>
   <div class="stat"><div class="k">Class</div><div class="v" style="font-size:1rem">{E(player["class"]) or "&mdash;"}</div></div>
@@ -730,7 +805,10 @@ def page_player(player):
 <tbody>{items}</tbody></table>
 <h2>Penalties</h2>
 <table><thead><tr><th>Kind</th><th class="num">Added to timer</th></tr></thead>
-<tbody>{pens}</tbody></table>"""
+<tbody>{pens}</tbody></table>
+{level_chart(load_levels(player.get("id")))}
+{feats_table(player)}
+{keepsakes_list(player)}"""
     return layout(player["username"], body, "/")
 
 

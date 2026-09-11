@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import events, quests, seasonal
+from . import achievements, events, quests, seasonal
 from .events import Outcome
 from .models import Player
 
@@ -93,7 +93,8 @@ def start_over(engine, player: Player) -> str:
     engine.session.commit()
     engine.announce([Outcome(
         f"{player.name} has prestiged, and begins again at level 0 with "
-        f"★{player.prestige} beside their name.", kind="prestige")])
+        f"★{player.prestige} beside their name.", kind="prestige"),
+        *achievements.on_prestige(player)])
     return (f"Reborn at level 0, ★{player.prestige}. You have {player.points} "
             f"points: PERKS shows what they buy.")
 

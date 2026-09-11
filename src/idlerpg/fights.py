@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import time
 
-from . import events, quests
+from . import achievements, events, quests
 from .events import Outcome
 from .models import Player
 from .text import duration
@@ -108,7 +108,7 @@ def fight(engine, me: Player, them: Player, at: int) -> str:
         f"{me.name} [{my_roll}/{mine}] challenged {them.name} [{their_roll}/{theirs}] "
         f"and {'won' if won else 'lost'}! {winner.name} takes {duration(amount)} "
         f"from {loser.name}'s clock.",
-        kind="fight")])
+        kind="fight"), *achievements.on_fight(winner, loser)])
     if won:
         return f"You won: {duration(amount)} taken from {them.name}'s clock and off yours."
     return f"You lost: {them.name} took {duration(amount)} from your clock."
@@ -145,18 +145,19 @@ def meetings(engine, online: list[Player], at: int) -> list[Outcome]:
                 if (a.id in questers and b.id in questers) or engine.met.get(pair, 0) > at:
                     continue
                 engine.met[pair] = at + MEETING_COOLDOWN
-                out.append(_clash(engine, a, b))
+                out.extend(_clash(engine, a, b))
     return out
 
 
-def _clash(engine, a: Player, b: Player) -> Outcome:
+def _clash(engine, a: Player, b: Player) -> list[Outcome]:
     sa, sb = strength(a), strength(b)
     ra, rb = engine.rng.randrange(sa), engine.rng.randrange(sb)
     winner, loser = (a, b) if ra >= rb else (b, a)
     amount = _take(engine, winner, loser)
-    return Outcome(f"{a.name} [{ra}/{sa}] and {b.name} [{rb}/{sb}] crossed paths and "
-                   f"fought! {winner.name} takes {duration(amount)} from "
-                   f"{loser.name}'s clock.", kind="fight")
+    return [Outcome(f"{a.name} [{ra}/{sa}] and {b.name} [{rb}/{sb}] crossed paths and "
+                    f"fought! {winner.name} takes {duration(amount)} from "
+                    f"{loser.name}'s clock.", kind="fight"),
+            *achievements.on_fight(winner, loser)]
 
 
 def command(engine, player: Player | None, verb: str, args: list[str]) -> str:

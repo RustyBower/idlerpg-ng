@@ -130,6 +130,8 @@ class Outcome:
 
     message: str
     kind: str = "event"
+    player_id: int | None = None    # who it was about, for the history
+    level: int | None = None        # the level reached, for a level-up
 
 
 def roll_item_level(player_level: int, rng: random.Random) -> int:
@@ -243,10 +245,10 @@ def trick_or_treat(player, rng: random.Random, curve) -> Outcome:
     if rng.randrange(2):
         player.next_ttl = max(1, player.next_ttl - amount)
         return Outcome(f"{player.name} knocked on a door {where} and was given a treat: "
-                       f"{duration(amount)} off their clock.", kind="season")
+                       f"{duration(amount)} off their clock.", kind="treat")
     player.next_ttl += amount
     return Outcome(f"{player.name} knocked on a door {where} and was played a trick: "
-                   f"{duration(amount)} on their clock.", kind="season")
+                   f"{duration(amount)} on their clock.", kind="trick")
 
 
 def item_sum(player) -> int:

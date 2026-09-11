@@ -163,13 +163,13 @@ class TestMeetings:
         a = fighter(engine, "a", items=10**6, next_ttl=50_000)
         b = fighter(engine, "b", items=0, next_ttl=100_000)
         self.together(a, b)
-        [said] = self.met(engine)
-        assert "crossed paths" in said.message
+        said = self.met(engine)                          # the fight, and First Blood
+        assert "crossed paths" in said[0].message
         cap = int(ttl(20, engine.curve) * 0.05)
         assert a.next_ttl == 50_000 - cap and b.next_ttl == 100_000 + cap
         assert self.met(engine) == []                    # the same pair, the same day
         later(monkeypatch, DAY)
-        assert len(self.met(engine)) == 1
+        assert "crossed paths" in self.met(engine)[0].message
 
     def test_meetings_leave_the_daily_fight_alone(self, engine):
         a, b = fighter(engine, "a"), fighter(engine, "b")

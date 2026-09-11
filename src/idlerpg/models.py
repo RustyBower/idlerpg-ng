@@ -104,6 +104,8 @@ class Player(Base):
     # someone, and until when nobody may challenge them. See fights.py.
     fight_ready_at: Mapped[int] = mapped_column(BigInteger, default=0)
     shield_until: Mapped[int] = mapped_column(BigInteger, default=0)
+    # A title earned with a season's meta achievement, worn beside the name.
+    title: Mapped[str | None] = mapped_column(String(64), default=None)
     # Position in the realm, for the map and journey quests.
     x: Mapped[int] = mapped_column(Integer, default=0)
     y: Mapped[int] = mapped_column(Integer, default=0)
@@ -117,6 +119,8 @@ class Player(Base):
         back_populates="player", cascade="all, delete-orphan"
     )
     achievements: Mapped[list["Achievement"]] = relationship(cascade="all, delete-orphan")
+    keepsakes: Mapped[list["Keepsake"]] = relationship(cascade="all, delete-orphan")
+    tallies: Mapped[list["Tally"]] = relationship(cascade="all, delete-orphan")
 
     @property
     def is_idling(self) -> bool:
@@ -266,6 +270,31 @@ class Achievement(Base):
     earned: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Keepsake(Base):
+    """A season's collectable - a mask, a gift, an egg's surprise. For show."""
+
+    __tablename__ = "keepsake"
+    __table_args__ = (UniqueConstraint("player_id", "name", name="uq_keepsake"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(64))
+    season: Mapped[str] = mapped_column(String(32))
+    found: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Tally(Base):
+    """A running count toward an achievement: fights won, eggs found..."""
+
+    __tablename__ = "tally"
+    __table_args__ = (UniqueConstraint("player_id", "key", name="uq_tally"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id", ondelete="CASCADE"))
+    key: Mapped[str] = mapped_column(String(64))
+    value: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
 class SeasonMark(Base):
     """Where a character stood as a season began, to measure what they made
     of it. Cleared when the season ends."""
@@ -298,6 +327,10 @@ class EventLog(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     kind: Mapped[str] = mapped_column(String(32))
     message: Mapped[str] = mapped_column(String(1024))
+    # Who it was about, and for a level-up the level reached: the history
+    # the player page charts.
+    player_id: Mapped[int | None] = mapped_column(Integer, default=None)
+    level: Mapped[int | None] = mapped_column(Integer, default=None)
     at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now()
     )
@@ -315,6 +348,9 @@ ADDED_COLUMNS = [
     ("player", "npc", "VARCHAR(16)"),
     ("player", "fight_ready_at", "BIGINT DEFAULT 0"),
     ("player", "shield_until", "BIGINT DEFAULT 0"),
+    ("player", "title", "VARCHAR(64)"),
+    ("event_log", "player_id", "INTEGER"),
+    ("event_log", "level", "INTEGER"),
 ]
 
 

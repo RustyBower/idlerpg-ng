@@ -146,6 +146,15 @@ progress toward their next levels, so a newcomer can beat a veteran - and
 everyone who idled through half of it wears its badge (🎃 ❄ 🌱). NPCs are
 not honoured. An admin's `SEASON` shows, forces or switches off the season;
 a forced season honours nobody.
+
+**Achievements** are earned once and announced: level milestones, prestiges,
+choosing an alignment, fights won, quests done (and one for breaking a
+quest's silence), a week without a penalty, a unique item. Each season has
+its own - Hallowtide's trick or treat, Midwinter's gifts and longest night,
+Springtide's egg hunt - with keepsakes to collect, and earning all of a
+season's grants a title worn beside the name. `ACHIEVEMENTS` lists yours,
+your page on the site lists them all and charts your level history. None of
+it touches a clock, an item or a fight; NPCs earn none of it.
 Times read as durations throughout, like `3d 4h`.
 
 ## Running it

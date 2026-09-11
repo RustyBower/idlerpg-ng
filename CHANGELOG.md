@@ -3,6 +3,26 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.21.0 - unreleased
+
+- **Achievements.** Earned once and announced: reaching levels 10, 25, 40
+  and 60, a first and third prestige, taking a side in `ALIGN`, a first and
+  a tenth fight won, beating someone five levels above you, completing one
+  quest and five, a week without a single penalty, a unique item - and
+  Loose Lips, for breaking a quest's silence. `ACHIEVEMENTS` lists yours;
+  your page on the site lists them all, and how to earn each.
+- **Seasonal achievements and keepsakes**, after the holiday achievements of
+  long-running online games. Hallowtide: knock on doors, gather treats,
+  collect every mask and costume, find the Horseman's lantern. Midwinter:
+  gifts for everyone about on Midwinter Day, the longest night, a snowball
+  fight, a full stocking. Springtide: an egg hunt, the golden egg, a full
+  basket, five levels in the season. Keeping a season counts, and earning
+  all of one grants its title - the Lantern-Bearer, Keeper of the Long
+  Night, the Blossoming - worn beside the name. None of it touches a clock,
+  an item or a fight.
+- **Level history.** Level-ups now record who and which level, and each
+  player's page charts it as it fills in.
+
 ## 0.20.0 - 2026-09-11
 
 - **Seasons bend a rule.** Hallowtide brings trick or treat - now and then a
