@@ -69,6 +69,32 @@ class TestTheRules:
         assert high.next_ttl == 10**7 + cap
         assert low.next_ttl == 1_000 - int(cap * 1.5)
 
+    def test_meetings_are_even_capped_and_once_a_day_a_pair(self):
+        from idlerpg.rules import Curve, ttl
+        f = Fights(RULES["meetings"], [], seed=1)
+        a = who(1, 20, value=10**6, next_ttl=50_000)           # surely wins
+        b = who(2, 20, value=0, next_ttl=100_000)
+        f.clash(a, b, 0)
+        cap = int(ttl(20, Curve()) * 0.05)
+        assert a.next_ttl == 50_000 - cap and b.next_ttl == 100_000 + cap
+        f.clash(b, a, 3600)                                    # the same pair, same day
+        assert b.next_ttl == 100_000 + cap
+        f.clash(a, b, 86400)
+        assert b.next_ttl == 100_000 + 2 * cap
+
+    def test_nobody_under_10_meets_in_anger(self):
+        f = Fights(RULES["meetings"], [], seed=1)
+        a, b = who(1, 20, value=10**6), who(2, 9, value=0)
+        f.clash(a, b, 0)
+        assert b.next_ttl == 100_000
+
+    def test_walking_takes_a_step_every_five_seconds(self, monkeypatch):
+        steps = []
+        monkeypatch.setattr(fairness.events, "move_player",
+                            lambda p, mx, my, rng: steps.append(p.id))
+        fairness.Walk(seed=1, fights=None)(None, [(who(1, 20), "x")], 0, 1800)
+        assert len(steps) == 1800 // fairness.SUBSTEP
+
     def test_luck_scales_each_fighters_stake(self):
         f = Fights(RULES["luck"], ["bully"], seed=1)
         calm = who(1, 25, value=10**6, ethos="lawful")          # surely wins

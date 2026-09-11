@@ -31,6 +31,7 @@ from .rules import Curve
 DAY = 86400
 WEEK = 7 * DAY
 EAGER_SECONDS = 2 * 3600   # a fight is used within a couple of hours online
+SUBSTEP = 5                # the live tick: a step on the map every 5 seconds
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,11 @@ class Rules:
     # costs, so a win is worth as much to a low player as to a high one and
     # nobody at the wall wins days from one fight.
     cap_by_winner: bool = False
+    # The daily FIGHT itself; and duels when two characters meet on a tile,
+    # at most once a day for any pair, on FIGHT's even, capped transfer.
+    # Meetings need --walk, so characters move at the live pace.
+    daily: bool = True
+    meetings: bool = False
 
 
 MORAL = {"good": 1.1, "neutral": 1.0, "evil": 0.9}
@@ -89,6 +95,11 @@ RULES.update({
     # from nothing: the winner gets exactly what the loser loses.
     "transfer-even": Rules("transfer-even", transfer=True, cap_by_winner=True,
                            **{**_PROPOSED, "underdog_bonus": 1.0}),
+    # Meeting on the map: alone, and beside the daily FIGHT as shipped.
+    "meetings": Rules("meetings", daily=False, meetings=True, transfer=True,
+                      cap_by_winner=True, min_level=10),
+    "fight+meetings": Rules("fight+meetings", meetings=True, transfer=True,
+                            cap_by_winner=True, **{**_PROPOSED, "underdog_bonus": 1.0}),
 })
 
 # The live realm on 2026-09-11: nine people and five fresh NPCs, by level.
@@ -164,6 +175,7 @@ class Fights:
         self.stats: dict[str, Counter] = defaultdict(Counter)
         self.weekly: Counter = Counter()
         self.curve = Curve()               # the realm's, once it is running
+        self.pair_ready: dict[tuple[int, int], float] = {}
 
     def allowed(self, me, them, elapsed: float) -> bool:
         r = self.rules
@@ -177,6 +189,8 @@ class Fights:
 
     def __call__(self, realm, players, elapsed: float, step: int) -> None:
         self.curve = realm.curve
+        if not self.rules.daily:
+            return
         order = list(range(len(players)))
         self.rng.shuffle(order)
         for i in order:
@@ -192,6 +206,29 @@ class Fights:
             if targets:
                 self.fight(me, pick(me, targets, self.rng), elapsed)
                 self.ready_at[me.id] = elapsed + DAY
+
+    def clash(self, a, b, at: float) -> None:
+        """Two characters met on a tile: a duel on FIGHT's even, capped
+        transfer, if both are old enough and this pair has not met today."""
+        r = self.rules
+        if a.level < r.min_level or b.level < r.min_level:
+            return
+        pair = (min(a.id, b.id), max(a.id, b.id))
+        if at < self.pair_ready.get(pair, 0):
+            return
+        self.pair_ready[pair] = at + DAY
+        won = self.rng.randrange(self.strength(a)) >= self.rng.randrange(self.strength(b))
+        winner, loser = (a, b) if won else (b, a)
+        cap = events.level_cost(winner, winner.level, self.curve) * r.stake
+        amount = max(0, int(min(loser.next_ttl * r.stake, cap)))
+        winner.next_ttl -= amount
+        loser.next_ttl += amount
+        for p in (a, b):
+            self.stats[p.name]["received"] += 1
+            self.weekly[(p.name, int(at // WEEK))] += 1
+        self.stats[winner.name]["won"] += 1
+        self.stats[winner.name]["gained"] += amount
+        self.stats[loser.name]["lost"] += amount
 
     def strength(self, p) -> int:
         s = events.item_sum(p) * events.champion(p)
@@ -227,12 +264,43 @@ class Fights:
             self.shielded_until[them.id] = elapsed + self.rules.shield_hours * 3600
 
 
+class Walk:
+    """Characters stepping at the live pace - a step every SUBSTEP seconds -
+    rather than once a simulated tick, so they meet as often as they would
+    live, and keep meeting the same neighbours; with ``fights``, they clash
+    when they do. Run in the control too, so only the duels differ."""
+
+    def __init__(self, seed: int, fights: Fights | None):
+        self.rng = random.Random(seed + 11)
+        self.fights = fights
+
+    def __call__(self, realm, players, elapsed: float, step: int) -> None:
+        from .engine import events_map_x, events_map_y
+        mx, my = events_map_x(), events_map_y()
+        walkers = [p for p, _ in players if p.is_idling]
+        for sub in range(max(1, int(step // SUBSTEP))):
+            for p in walkers:
+                events.move_player(p, mx, my, self.rng)
+            if self.fights is None:
+                continue
+            tiles: dict[tuple[int, int], list] = {}
+            for p in walkers:
+                tiles.setdefault((p.x, p.y), []).append(p)
+            for group in tiles.values():
+                for i, a in enumerate(group):
+                    for b in group[i + 1:]:
+                        self.fights.clash(a, b, elapsed + sub * SUBSTEP)
+
+
 def _one(job: tuple) -> dict:
     """One seeded realm, in a worker: with FIGHT under a rule set, or none."""
     scenario, rules_name, seed, days, step, *rest = job
     levels = rest[0] if rest else REALM
+    walk = rest[1] if len(rest) > 1 else False
     strategies = assign(scenario, levels, seed)
     fights = Fights(RULES[rules_name], strategies, seed) if rules_name else None
+    walker = (Walk(seed, fights if fights is not None and fights.rules.meetings else None)
+              if walk else None)
     # Alignments rotate with the seed, so none is tied to a level.
     roster = [simulate.NINE[(i + seed) % len(simulate.NINE)] for i in range(len(levels))]
     started = []
@@ -246,6 +314,8 @@ def _one(job: tuple) -> dict:
                         p.set_perk_rank("champion", 5)
         if fights is not None:
             fights(realm, players, elapsed, step)
+        if walker is not None:
+            walker(realm, players, elapsed, step)
 
     results = simulate.run(roster, days=days, step=step, seed=seed,
                            habits=PROFILES["average"], curve=Curve(),
@@ -342,20 +412,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--levels", help="the realm's start levels, e.g. 62,60,58 "
                                          "(default: the live realm; the bullies and "
                                          "champions scenarios assume it)")
+    parser.add_argument("--walk", action="store_true",
+                        help="move characters a step every 5 seconds, as live, "
+                             "rather than once a tick; meetings need it")
     args = parser.parse_args(argv)
 
     rules = [r.strip() for r in args.rules.split(",") if r.strip()]
     unknown = [r for r in rules if r not in RULES]
     if unknown:
         parser.error(f"unknown rules {unknown}; one of {sorted(RULES)}")
+    if any(RULES[r].meetings for r in rules) and not args.walk:
+        parser.error("meetings need --walk: at one step a tick, nobody meets anyone")
     scenarios = [s.strip() for s in args.scenario.split(",") if s.strip()]
     levels = [int(v) for v in args.levels.split(",")] if args.levels else REALM
     seeds = range(1, args.seeds + 1)
     # The control - no fights - is the same whatever the strategies, but the
     # champions' perks change the realm itself, so they get their own.
-    work = [(base, "", seed, args.days, args.step, levels)
+    work = [(base, "", seed, args.days, args.step, levels, args.walk)
             for base in sorted({_baseline(s) for s in scenarios}) for seed in seeds]
-    work += [(s, r, seed, args.days, args.step, levels)
+    work += [(s, r, seed, args.days, args.step, levels, args.walk)
              for s in scenarios for r in rules for seed in seeds]
     if args.jobs <= 1:
         runs = [_one(job) for job in work]
@@ -363,7 +438,8 @@ def main(argv: list[str] | None = None) -> int:
         with ProcessPoolExecutor(max_workers=args.jobs) as pool:
             runs = list(pool.map(_one, work))
     print(f"{len(levels)} players at levels {levels}, {args.days:g} days, "
-          f"{args.seeds} seeds, {args.step // 60}m ticks.")
+          f"{args.seeds} seeds, {args.step // 60}m ticks"
+          + (", walking at the live pace." if args.walk else "."))
     print(report(runs, args.days, levels))
     return 0
 
