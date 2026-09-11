@@ -142,3 +142,21 @@ def test_the_footer_shows_the_running_version():
     from idlerpg import __version__, web
     page = web.layout("Test", "<p>body</p>")
     assert f"idlerpg-ng {__version__}" in page
+
+
+def test_a_client_hanging_up_is_not_reported_but_real_faults_are(capsys):
+    from idlerpg import web
+    server = web.Server(("127.0.0.1", 0), web.Handler)
+    try:
+        try:
+            raise BrokenPipeError(32, "Broken pipe")
+        except BrokenPipeError:
+            server.handle_error(None, ("10.42.0.1", 52146))
+        assert capsys.readouterr().err == ""
+        try:
+            raise ValueError("a real fault")
+        except ValueError:
+            server.handle_error(None, ("10.42.0.1", 52146))
+        assert "ValueError: a real fault" in capsys.readouterr().err
+    finally:
+        server.server_close()

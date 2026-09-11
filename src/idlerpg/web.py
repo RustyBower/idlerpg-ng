@@ -809,5 +809,16 @@ class Handler(BaseHTTPRequestHandler):
         sys.stdout.flush()
 
 
+class Server(ThreadingHTTPServer):
+    """The standard server, minus the traceback when a client hangs up before
+    its response is written - a health probe or a closed tab, not a fault.
+    Anything else is still reported in full."""
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
+
 if __name__ == "__main__":
-    ThreadingHTTPServer(("", PORT), Handler).serve_forever()
+    Server(("", PORT), Handler).serve_forever()
