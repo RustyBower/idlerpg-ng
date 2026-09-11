@@ -3,7 +3,7 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.21.0 - unreleased
+## 0.21.0 - 2026-09-11
 
 - **Achievements.** Earned once and announced: reaching levels 10, 25, 40
   and 60, a first and third prestige, taking a side in `ALIGN`, a first and
