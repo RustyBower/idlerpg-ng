@@ -3,7 +3,7 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.20.0 - unreleased
+## 0.20.0 - 2026-09-11
 
 - **Seasons bend a rule.** Hallowtide brings trick or treat - now and then a
   small treat or trick, even odds, worth up to 5% of a level. Midwinter's long
