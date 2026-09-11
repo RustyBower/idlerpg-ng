@@ -47,6 +47,9 @@ class IRCConfig:
     reconnect_seconds: int = field(
         default_factory=lambda: int(os.environ.get("IRC_RECONNECT_SECONDS", "30"))
     )
+    # Voice players while they are logged in, as the original did. Takes a
+    # rank in the channel (ops or halfops); without one it does nothing.
+    voice: bool = field(default_factory=lambda: _bool("IRC_VOICE", True))
 
 
 @dataclass

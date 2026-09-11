@@ -166,7 +166,9 @@ def _create(engine, taken: set[str]) -> Player | None:
         password_hash=UNUSABLE_PASSWORD,
         character_class=rng.choice(CLASSES),
         level=0,
-        next_ttl=int(ttl(0, engine.curve)),
+        # Staggered, so NPCs joining together do not level up - and fill the
+        # channel - in the same tick for ever after.
+        next_ttl=int(ttl(0, engine.curve) * (0.5 + rng.random())),
         alignment=rng.choice(list(Alignment)),
         ethos=rng.choice(list(Ethos)),
         last_login=utcnow(),

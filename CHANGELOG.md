@@ -3,6 +3,17 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.16.2 - unreleased
+
+- **Voice on IRC.** Players are voiced while they are logged in and in the
+  channel, and lose it when they log out, as in the original. It takes ops in
+  the channel, which the bot already has for the topic.
+- The bot paces what it says on IRC - a few lines at once, then one every
+  two seconds, with replies to players ahead of channel news - so a busy
+  moment can no longer get it disconnected for flooding.
+- NPCs that join together no longer level up in the same moment ever after.
+- *Operators:* `IRC_VOICE=false` turns voicing off.
+
 ## 0.16.1 - 2026-09-11
 
 - **The map has a heartland.** Characters drift through the middle 80% of the

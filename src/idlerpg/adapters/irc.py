@@ -23,6 +23,8 @@ import asyncio
 import logging
 import re
 import ssl
+import time
+from collections import deque
 from dataclasses import dataclass
 
 from .. import __version__, admin, prestige
@@ -89,6 +91,21 @@ def renamed(prefix: str, new_nick: str) -> str | None:
 
 
 class IRCAdapter:
+    # The server hears this many lines at once, then one every SEND_INTERVAL
+    # seconds - well inside what IRC servers allow before disconnecting a
+    # client for flooding, however busy the realm gets.
+    SEND_BURST = 4
+    SEND_INTERVAL = 2.0
+    # The protocol itself goes at once, whatever is queued.
+    IMMEDIATE = frozenset({"PONG", "PING", "NICK", "USER", "PASS", "CAP", "JOIN",
+                           "WHO", "QUIT"})
+    VOICES_PER_LINE = 4
+    # Channel modes that take a parameter either way, and those that take one
+    # only when set, so a MODE line's parameters can be matched to its modes.
+    PARAM_MODES = frozenset("ovhqabeIk")
+    PARAM_WHEN_SET = frozenset("lLfjH")
+    RANKS = {"~": "q", "&": "a", "@": "o", "%": "h"}
+
     def __init__(self, engine: Engine, config):
         self.engine = engine
         self.cfg = config.irc
@@ -105,6 +122,19 @@ class IRCAdapter:
         # The nick we actually hold. It differs from cfg.nick while another
         # connection has ours - usually our own, from before a restart.
         self.nick = self.cfg.nick
+        # Paced output, once run_forever's pump is running: replies to
+        # people jump ahead of what the channel is told.
+        self.replies: deque[str] = deque()
+        self.chatter: deque[str] = deque()
+        self.clock = time.monotonic
+        self.tokens = float(self.SEND_BURST)
+        self.refilled = self.clock()
+        self.paced = False
+        # Voice for whoever is logged in and in the channel. Giving it takes
+        # a rank there: our own ranks (o, h, ...) and the voiced nicks are
+        # followed from NAMES, WHO and MODE.
+        self.ranks: set[str] = set()
+        self.voiced: set[str] = set()
 
     # ------------------------------------------------------------------ wire
 
@@ -124,10 +154,43 @@ class IRCAdapter:
         self.send(f"USER {self.cfg.user} 0 * :{self.cfg.realname}")
 
     def send(self, line: str) -> None:
+        """Send a line, or queue it. The protocol goes at once; the rest is
+        paced while the connection's pump runs, replies to people first."""
         if self.writer is None:
             return
+        verb, _, rest = line.partition(" ")
+        if not self.paced or verb.upper() in self.IMMEDIATE:
+            self._write(line)
+            return
+        target = rest.split(" ", 1)[0].lower()
+        to_channel = verb.upper() in ("PRIVMSG", "TOPIC") and target == self.cfg.channel.lower()
+        lane = self.chatter if to_channel else self.replies
+        lane.append(line)
+        if len(lane) % 100 == 0:
+            log.warning("IRC output is %d lines behind", len(lane))
+        self.flush()
+
+    def _write(self, line: str) -> None:
         log.debug(">> %s", line)
         self.writer.write((line + "\r\n").encode("utf-8", "replace"))
+
+    def flush(self) -> None:
+        """Send as much of the queue as the pace allows now."""
+        now = self.clock()
+        self.tokens = min(float(self.SEND_BURST),
+                          self.tokens + (now - self.refilled) / self.SEND_INTERVAL)
+        self.refilled = now
+        while self.tokens >= 1 and self.writer is not None and (self.replies or self.chatter):
+            self._write((self.replies or self.chatter).popleft())
+            self.tokens -= 1
+
+    async def _pump(self) -> None:
+        """Drain the queue for as long as the connection lasts."""
+        while True:
+            self.flush()
+            if self.writer is not None:
+                await self.writer.drain()
+            await asyncio.sleep(self.SEND_INTERVAL / 2)
 
     # Everything the game says goes through safe(): a name or class holding
     # bidi overrides or colour codes must not flip or paint the channel.
@@ -183,7 +246,10 @@ class IRCAdapter:
                 irc_identity.display_name = nick
         if mask:
             self.engine.remember_login(identity, mask)
-        return self._settle(player, identity.external_id)
+        here = self._settle(player, identity.external_id)
+        if here:
+            self.voice(nick)
+        return here
 
     def unbind(self, nick: str, penalty: Penalty | None = None,
                forget: bool = True) -> int:
@@ -205,6 +271,7 @@ class IRCAdapter:
             identity = self.engine.find_identity(Platform.IRC, external)
             if identity is not None:
                 self.engine.remember_login(identity, None)
+        self.devoice(nick)          # still in the channel, but logged out
         self.bound.pop(nick.lower(), None)
         self._settle(player, external)
         return cost
@@ -244,6 +311,65 @@ class IRCAdapter:
         self.bind(nick, identity.player, mask)
         self.engine.record_login(identity.player, Platform.IRC, announce=False)
         log.info("resumed %s as %s", nick, identity.player.name)
+
+    # ----------------------------------------------------------------- voice
+
+    def _voice_lines(self, sign: str, nicks: list[str]) -> None:
+        for i in range(0, len(nicks), self.VOICES_PER_LINE):
+            chunk = nicks[i:i + self.VOICES_PER_LINE]
+            self.send(f"MODE {self.cfg.channel} {sign}{'v' * len(chunk)} {' '.join(chunk)}")
+
+    def voice(self, *nicks: str) -> None:
+        """Voice those of ``nicks`` logged in and in the channel, if we hold
+        a rank there to do it with."""
+        if not self.cfg.voice or not self.ranks:
+            return
+        todo = [n.lower() for n in nicks
+                if n.lower() in self.bound and n.lower() in self.members
+                and n.lower() not in self.voiced]
+        self.voiced.update(todo)
+        if todo:
+            self._voice_lines("+", todo)
+
+    def devoice(self, nick: str) -> None:
+        """Take the voice from a nick still in the channel but logged out.
+        Only voice we can see: a voice from before is taken too, but one
+        never given is not asked for."""
+        if not self.cfg.voice or not self.ranks:
+            return
+        if nick.lower() in self.voiced and nick.lower() in self.members:
+            self.voiced.discard(nick.lower())
+            self._voice_lines("-", [nick.lower()])
+
+    def _modes(self, modes: str, args: list[str]) -> None:
+        """Follow a channel MODE line: who is voiced, and our own ranks."""
+        sign, args, had = "+", list(args), bool(self.ranks)
+        for m in modes:
+            if m in "+-":
+                sign = m
+                continue
+            if not (m in self.PARAM_MODES or (m in self.PARAM_WHEN_SET and sign == "+")):
+                continue
+            target = args.pop(0).lower() if args else ""
+            if m == "v":
+                (self.voiced.add if sign == "+" else self.voiced.discard)(target)
+            elif m in "qaoh" and target == self.nick.lower():
+                (self.ranks.add if sign == "+" else self.ranks.discard)(m)
+        if self.ranks and not had:
+            # Just given a rank - usually ChanServ's op, after we joined and
+            # logins resumed: voice everyone already logged in.
+            self.voice(*[n for n in self.bound if n in self.members])
+
+    def _prefixed(self, name: str) -> str:
+        """A NAMES or WHO entry's nick, noting its voice and, if it is us,
+        our ranks."""
+        nick = name.lstrip("~&@%+")
+        prefixes = name[:len(name) - len(nick)]
+        if "+" in prefixes:
+            self.voiced.add(nick.lower())
+        if nick.lower() == self.nick.lower():
+            self.ranks.update(self.RANKS[p] for p in prefixes if p in self.RANKS)
+        return nick
 
     # -------------------------------------------------------------- commands
 
@@ -326,6 +452,7 @@ class IRCAdapter:
                 self.notice(nick, f"Cannot remove: {exc}.")
                 return
             for bound_nick in [n for n, e in self.bound.items() if e == external]:
+                self.devoice(bound_nick)
                 self.bound.pop(bound_nick)
             self.notice(nick, f"{name} is gone. REGISTER any time to start again.")
         elif verb == "ALIGN":
@@ -479,6 +606,8 @@ class IRCAdapter:
                 # We are in. Ask who else is: the replies fill in the members
                 # and resume logins from before a restart.
                 self.members.clear()
+                self.voiced.clear()
+                self.ranks.clear()
                 self.send(f"WHO {self.cfg.channel}")
                 return
             self.members.add(msg.nick.lower())
@@ -486,17 +615,21 @@ class IRCAdapter:
             player = self.character_for_nick(msg.nick) if external else None
             if player is not None:
                 self._settle(player, external)  # logged in first, joined now
+                self.voice(msg.nick)
             else:
                 self.resume(msg.nick, msg.prefix)
         elif cmd == "353":
             # NAMES reply: me = channel :nick @op +voiced ...
             if len(msg.params) >= 4 and msg.params[2].lower() == channel:
                 for name in msg.text.split():
-                    self.members.add(name.lstrip("~&@%+").lower())
+                    self.members.add(self._prefixed(name).lower())
         elif cmd == "352":
             # WHO reply: me channel user host server nick flags :hops realname
             if len(msg.params) >= 6 and msg.params[1].lower() == channel:
                 user, host, nick = msg.params[2], msg.params[3], msg.params[5]
+                flags = msg.params[6] if len(msg.params) > 6 else ""
+                # Flags like "Hr@+": only the rank symbols say anything here.
+                self._prefixed("".join(c for c in flags if c in "~&@%+") + nick)
                 if nick.lower() != self.nick.lower():
                     self.members.add(nick.lower())
                     self.resume(nick, f"{nick}!{user}@{host}")
@@ -505,9 +638,11 @@ class IRCAdapter:
             if where.lower() != channel:
                 return
             self.members.discard(msg.nick.lower())
+            self.voiced.discard(msg.nick.lower())
             self.unbind(msg.nick, Penalty.PART)
         elif cmd == "QUIT":
             self.members.discard(msg.nick.lower())
+            self.voiced.discard(msg.nick.lower())
             if (msg.nick.lower() == self.cfg.nick.lower()
                     and self.nick.lower() != self.cfg.nick.lower()):
                 # Whatever held our nick has gone: take it back.
@@ -525,7 +660,11 @@ class IRCAdapter:
             if where.lower() != channel:
                 return
             self.members.discard(victim.lower())
+            self.voiced.discard(victim.lower())
             self.unbind(victim, Penalty.KICK)
+        elif cmd == "MODE":
+            if len(msg.params) >= 2 and msg.params[0].lower() == channel:
+                self._modes(msg.params[1], msg.params[2:])
         elif cmd == "NICK":
             new = msg.text
             if msg.nick.lower() == self.nick.lower():
@@ -534,6 +673,9 @@ class IRCAdapter:
             if msg.nick.lower() in self.members:
                 self.members.discard(msg.nick.lower())
                 self.members.add(new.lower())
+            if msg.nick.lower() in self.voiced:      # a voice follows its nick
+                self.voiced.discard(msg.nick.lower())
+                self.voiced.add(new.lower())
             player = self.character_for_nick(msg.nick)
             if player is not None:
                 cost = self.engine.penalise(player, Penalty.NICK, platform=Platform.IRC)
@@ -584,16 +726,27 @@ class IRCAdapter:
 
     async def run_forever(self) -> None:
         while True:
+            pump = None
             try:
                 await self.connect()
+                self.paced = True
+                pump = asyncio.create_task(self._pump())
                 await self._read_loop()
             except Exception as exc:
                 log.warning("disconnected: %s", exc)
+            if pump is not None:
+                pump.cancel()
+            # What was queued was for a connection that is gone.
+            self.paced = False
+            self.replies.clear()
+            self.chatter.clear()
             # Everyone loses presence when the link drops; they are not online
             # to us any more, and should not accrue time until they return.
             self.engine.reset_presence(Platform.IRC)
             self.bound.clear()
             self.members.clear()
+            self.voiced.clear()
+            self.ranks.clear()
             if self.writer:
                 self.writer.close()
                 self.writer = None
