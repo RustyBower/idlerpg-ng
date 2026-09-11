@@ -59,6 +59,16 @@ class TestTheRules:
         assert low.next_ttl == 1_000 - int(5_000 * 1.5)        # past zero: a level up
 
 
+    def test_a_capped_transfer_is_no_more_than_the_winners_own_stake(self):
+        from idlerpg.rules import Curve, ttl
+        f = Fights(RULES["transfer-capped"], ["bully"], seed=1)
+        low = who(1, 20, value=10**6, next_ttl=1_000)          # surely wins
+        high = who(2, 25, value=1, next_ttl=10**7)             # a vast clock
+        f.fight(low, high, elapsed=0)
+        cap = int(ttl(20, Curve()) * 0.05)
+        assert high.next_ttl == 10**7 + cap
+        assert low.next_ttl == 1_000 - int(cap * 1.5)
+
     def test_luck_scales_each_fighters_stake(self):
         f = Fights(RULES["luck"], ["bully"], seed=1)
         calm = who(1, 25, value=10**6, ethos="lawful")          # surely wins

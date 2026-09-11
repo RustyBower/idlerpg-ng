@@ -54,6 +54,10 @@ class Rules:
     # Good fights at +10% strength and evil at -10%, as in the original's
     # battles.
     moral_rolls: bool = False
+    # A transfer takes no more than the stake of what the winner's own level
+    # costs, so a win is worth as much to a low player as to a high one and
+    # nobody at the wall wins days from one fight.
+    cap_by_winner: bool = False
 
 
 MORAL = {"good": 1.1, "neutral": 1.0, "evil": 0.9}
@@ -79,6 +83,12 @@ RULES.update({
     "moral": Rules("moral", moral_rolls=True, **_PROPOSED),
     "transfer-luck": Rules("transfer-luck", transfer=True, luck_stakes=True, **_PROPOSED),
     "transfer-moral": Rules("transfer-moral", transfer=True, moral_rolls=True, **_PROPOSED),
+    "transfer-capped": Rules("transfer-capped", transfer=True, cap_by_winner=True,
+                             **_PROPOSED),
+    # As transfer-capped, but without the underdog bonus, which makes time
+    # from nothing: the winner gets exactly what the loser loses.
+    "transfer-even": Rules("transfer-even", transfer=True, cap_by_winner=True,
+                           **{**_PROPOSED, "underdog_bonus": 1.0}),
 })
 
 # The live realm on 2026-09-11: nine people and five fresh NPCs, by level.
@@ -153,6 +163,7 @@ class Fights:
         self.shielded_until: dict[int, float] = {}
         self.stats: dict[str, Counter] = defaultdict(Counter)
         self.weekly: Counter = Counter()
+        self.curve = Curve()               # the realm's, once it is running
 
     def allowed(self, me, them, elapsed: float) -> bool:
         r = self.rules
@@ -165,6 +176,7 @@ class Fights:
         return elapsed >= self.shielded_until.get(them.id, 0)
 
     def __call__(self, realm, players, elapsed: float, step: int) -> None:
+        self.curve = realm.curve
         order = list(range(len(players)))
         self.rng.shuffle(order)
         for i in order:
@@ -196,6 +208,9 @@ class Fights:
         bonus = self.rules.underdog_bonus if winner.level < loser.level else 1.0
         loss = int(loser.next_ttl * self.rules.stake * self.luck(loser))
         if self.rules.transfer:
+            if self.rules.cap_by_winner:
+                own = events.level_cost(winner, winner.level, self.curve)
+                loss = min(loss, int(own * self.rules.stake))
             gain = int(loss * bonus)
             winner.next_ttl -= gain       # past zero, the tick levels them up
         else:
