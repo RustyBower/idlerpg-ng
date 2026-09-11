@@ -43,6 +43,20 @@ class Rules:
     max_below: int | None = None    # a target at most this many levels below you
     shield_hours: float = 0         # once challenged, safe from challenges this long
     underdog_bonus: float = 1.0     # the winner's gain, beating a higher level
+    # Staked, each fighter risks a share of their own clock. Transferred, the
+    # winner takes a share of the loser's: what a fight is worth is set by
+    # the loser, and a win past the end of your clock carries into the next
+    # level, as any time does.
+    transfer: bool = False
+    # Each fighter's stake scaled by their place on the law-chaos axis, as
+    # luck is: lawful risks half, chaotic half as much again.
+    luck_stakes: bool = False
+    # Good fights at +10% strength and evil at -10%, as in the original's
+    # battles.
+    moral_rolls: bool = False
+
+
+MORAL = {"good": 1.1, "neutral": 1.0, "evil": 0.9}
 
 
 RULES = {
@@ -52,7 +66,20 @@ RULES = {
     "no-shield": Rules("no-shield", min_level=10, max_below=5, underdog_bonus=1.5),
     "tight": Rules("tight", min_level=10, max_below=2, shield_hours=24,
                    underdog_bonus=1.5),
+    "transfer-open": Rules("transfer-open", transfer=True),
+    "transfer": Rules("transfer", min_level=10, max_below=5, shield_hours=24,
+                      underdog_bonus=1.5, transfer=True),
+    "transfer-tight": Rules("transfer-tight", min_level=10, max_below=2,
+                            shield_hours=24, underdog_bonus=1.5, transfer=True),
 }
+# The proposed limits with an alignment twist, staked and transferred.
+_PROPOSED = dict(min_level=10, max_below=5, shield_hours=24, underdog_bonus=1.5)
+RULES.update({
+    "luck": Rules("luck", luck_stakes=True, **_PROPOSED),
+    "moral": Rules("moral", moral_rolls=True, **_PROPOSED),
+    "transfer-luck": Rules("transfer-luck", transfer=True, luck_stakes=True, **_PROPOSED),
+    "transfer-moral": Rules("transfer-moral", transfer=True, moral_rolls=True, **_PROPOSED),
+})
 
 # The live realm on 2026-09-11: nine people and five fresh NPCs, by level.
 REALM = [30, 30, 30, 21, 19, 19, 11, 3, 2, 0, 0, 0, 0, 0]
@@ -69,6 +96,14 @@ def tier(level: int) -> str:
 
 
 TIERS = ["new (0-3)", "low (11)", "mid (19-21)", "top (30)"]
+
+
+def bands(levels: list[int], count: int = 4) -> list[tuple[int, int]]:
+    """Any other realm's start levels, split into about ``count`` bands."""
+    distinct = sorted(set(levels))
+    size = math.ceil(len(distinct) / count)
+    return [(g[0], g[-1]) for g in
+            (distinct[i:i + size] for i in range(0, len(distinct), size))]
 
 
 # Who a challenger picks from those the rules allow.
@@ -91,11 +126,13 @@ def assign(scenario: str, levels: list[int], seed: int) -> list[str]:
     """Each player's strategy.
 
     bullies: everyone from level 19 bullies, the rest fight fairly.
+    champions: as bullies, and the level-30 veterans have five ranks of the
+    Champion perk - prestiged players among fresh ones.
     everyone: all bully - the worst case.
     mixed: the four strategies rotate through the roster with the seed, so
     each is played at every level and can be compared head to head.
     """
-    if scenario == "bullies":
+    if scenario in ("bullies", "champions"):
         return ["bully" if level >= 19 else "fair" for level in levels]
     if scenario == "everyone":
         return ["bully"] * len(levels)
@@ -144,15 +181,26 @@ class Fights:
                 self.fight(me, pick(me, targets, self.rng), elapsed)
                 self.ready_at[me.id] = elapsed + DAY
 
+    def strength(self, p) -> int:
+        s = events.item_sum(p) * events.champion(p)
+        if self.rules.moral_rolls:
+            s *= MORAL.get(p.alignment.value, 1.0)
+        return max(1, int(s))
+
+    def luck(self, p) -> float:
+        return events.LUCK.get(events.ethos(p), 1.0) if self.rules.luck_stakes else 1.0
+
     def fight(self, me, them, elapsed: float) -> None:
-        mine = max(1, int(events.item_sum(me) * events.champion(me)))
-        theirs = max(1, int(events.item_sum(them) * events.champion(them)))
-        won = self.rng.randrange(mine) >= self.rng.randrange(theirs)
+        won = self.rng.randrange(self.strength(me)) >= self.rng.randrange(self.strength(them))
         winner, loser = (me, them) if won else (them, me)
         bonus = self.rules.underdog_bonus if winner.level < loser.level else 1.0
-        gain = int(winner.next_ttl * self.rules.stake * bonus)
-        loss = int(loser.next_ttl * self.rules.stake)
-        winner.next_ttl = max(1, winner.next_ttl - gain)
+        loss = int(loser.next_ttl * self.rules.stake * self.luck(loser))
+        if self.rules.transfer:
+            gain = int(loss * bonus)
+            winner.next_ttl -= gain       # past zero, the tick levels them up
+        else:
+            gain = int(winner.next_ttl * self.rules.stake * self.luck(winner) * bonus)
+            winner.next_ttl = max(1, winner.next_ttl - gain)
         loser.next_ttl += loss
         self.stats[me.name]["made"] += 1
         self.stats[them.name]["received"] += 1
@@ -166,20 +214,34 @@ class Fights:
 
 def _one(job: tuple) -> dict:
     """One seeded realm, in a worker: with FIGHT under a rule set, or none."""
-    scenario, rules_name, seed, days, step = job
-    strategies = assign(scenario, REALM, seed)
+    scenario, rules_name, seed, days, step, *rest = job
+    levels = rest[0] if rest else REALM
+    strategies = assign(scenario, levels, seed)
     fights = Fights(RULES[rules_name], strategies, seed) if rules_name else None
     # Alignments rotate with the seed, so none is tied to a level.
-    roster = [simulate.NINE[(i + seed) % len(simulate.NINE)] for i in range(len(REALM))]
+    roster = [simulate.NINE[(i + seed) % len(simulate.NINE)] for i in range(len(levels))]
+    started = []
+
+    def hook(realm, players, elapsed, step):
+        if not started:
+            started.append(True)
+            if scenario == "champions":     # in the control run too
+                for (p, _), level in zip(players, levels):
+                    if level >= 30:
+                        p.set_perk_rank("champion", 5)
+        if fights is not None:
+            fights(realm, players, elapsed, step)
+
     results = simulate.run(roster, days=days, step=step, seed=seed,
                            habits=PROFILES["average"], curve=Curve(),
-                           levels=REALM, hook=fights)
+                           levels=levels, hook=hook)
     players = []
     for i, r in enumerate(results):
         s = fights.stats[r.name] if fights else Counter()
         worst = max((n for (name, _), n in fights.weekly.items() if name == r.name),
                     default=0) if fights else 0
         players.append({"i": i, "start": r.start, "pace": r.pace,
+                        "alignment": r.alignment,
                         "strategy": strategies[i], "worst_week": worst, **s})
     return {"scenario": scenario, "rules": rules_name, "seed": seed, "players": players}
 
@@ -190,9 +252,22 @@ def _mean_ci(values: list[float]) -> tuple[float, float]:
     return mean, ci
 
 
-def report(runs: list[dict], days: float) -> str:
-    control = {(r["seed"], p["i"]): p["pace"] for r in runs if not r["rules"]
-               for p in r["players"]}
+def _baseline(scenario: str) -> str:
+    """Which control run a scenario is measured against."""
+    return "champions" if scenario == "champions" else "mixed"
+
+
+def _ethos(alignment: str) -> str:
+    return "neutral" if alignment == "true neutral" else alignment.split()[0]
+
+
+def _moral(alignment: str) -> str:
+    return alignment.split()[-1]
+
+
+def report(runs: list[dict], days: float, levels: list[int] = REALM) -> str:
+    control = {(r["scenario"], r["seed"], p["i"]): p["pace"] for r in runs
+               if not r["rules"] for p in r["players"]}
     weeks = days / 7
     lines = []
     cases = sorted({(r["scenario"], r["rules"]) for r in runs if r["rules"]})
@@ -203,14 +278,28 @@ def report(runs: list[dict], days: float) -> str:
         head = (f"{'':14}{'n':>4}{'change':>9}{'±95%':>7}{'made/wk':>9}{'taken/wk':>10}"
                 f"{'won':>6}{'net h/wk':>10}{'worst wk':>10}")
         lines += [head, "-" * len(head)]
-        groups = [(t, lambda p, t=t: tier(p["start"]) == t) for t in TIERS]
+        if list(levels) == REALM:
+            groups = [(t, lambda p, t=t: tier(p["start"]) == t) for t in TIERS]
+        else:
+            groups = [(f"levels {lo}-{hi}" if lo != hi else f"level {lo}",
+                       lambda p, lo=lo, hi=hi: lo <= p["start"] <= hi)
+                      for lo, hi in bands(levels)]
         if scenario == "mixed":
             groups += [(s, lambda p, s=s: p["strategy"] == s) for s in STRATEGIES]
+        rules = RULES[rules_name]
+        if rules.luck_stakes:
+            groups += [(e, lambda p, e=e: _ethos(p["alignment"]) == e)
+                       for e in ("lawful", "neutral", "chaotic")]
+        if rules.moral_rolls:
+            groups += [(m, lambda p, m=m: _moral(p["alignment"]) == m)
+                       for m in ("good", "neutral", "evil")]
+        base = _baseline(scenario)
         for label, member in groups:
             group = [(seed, p) for seed, p in rows if member(p)]
             if not group:
                 continue
-            change, ci = _mean_ci([p["pace"] - control[(seed, p["i"])] for seed, p in group])
+            change, ci = _mean_ci([p["pace"] - control[(base, seed, p["i"])]
+                                   for seed, p in group])
             made = sum(p.get("made", 0) for _, p in group) / len(group) / weeks
             taken = sum(p.get("received", 0) for _, p in group) / len(group) / weeks
             bouts = sum(p.get("made", 0) + p.get("received", 0) for _, p in group)
@@ -235,6 +324,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--days", type=float, default=21)
     parser.add_argument("--step", type=int, default=1800)
     parser.add_argument("--jobs", type=int, default=1)
+    parser.add_argument("--levels", help="the realm's start levels, e.g. 62,60,58 "
+                                         "(default: the live realm; the bullies and "
+                                         "champions scenarios assume it)")
     args = parser.parse_args(argv)
 
     rules = [r.strip() for r in args.rules.split(",") if r.strip()]
@@ -242,19 +334,22 @@ def main(argv: list[str] | None = None) -> int:
     if unknown:
         parser.error(f"unknown rules {unknown}; one of {sorted(RULES)}")
     scenarios = [s.strip() for s in args.scenario.split(",") if s.strip()]
+    levels = [int(v) for v in args.levels.split(",")] if args.levels else REALM
     seeds = range(1, args.seeds + 1)
-    # The control - no fights - is the same whatever the scenario.
-    work = [("mixed", "", seed, args.days, args.step) for seed in seeds]
-    work += [(s, r, seed, args.days, args.step)
+    # The control - no fights - is the same whatever the strategies, but the
+    # champions' perks change the realm itself, so they get their own.
+    work = [(base, "", seed, args.days, args.step, levels)
+            for base in sorted({_baseline(s) for s in scenarios}) for seed in seeds]
+    work += [(s, r, seed, args.days, args.step, levels)
              for s in scenarios for r in rules for seed in seeds]
     if args.jobs <= 1:
         runs = [_one(job) for job in work]
     else:
         with ProcessPoolExecutor(max_workers=args.jobs) as pool:
             runs = list(pool.map(_one, work))
-    print(f"{len(REALM)} players at levels {REALM}, {args.days:g} days, "
+    print(f"{len(levels)} players at levels {levels}, {args.days:g} days, "
           f"{args.seeds} seeds, {args.step // 60}m ticks.")
-    print(report(runs, args.days))
+    print(report(runs, args.days, levels))
     return 0
 
 

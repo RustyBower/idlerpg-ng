@@ -8,11 +8,14 @@ from idlerpg import fairness
 from idlerpg.fairness import RULES, Fights
 
 
-def who(id, level, online=True, value=10, next_ttl=100_000):
+def who(id, level, online=True, value=10, next_ttl=100_000, moral="neutral",
+        ethos="neutral"):
     items = [SimpleNamespace(value=value)]
     return SimpleNamespace(id=id, name=f"p{id}", level=level, is_idling=online,
                            items=items, perks="{}", next_ttl=next_ttl,
-                           perk_rank=lambda name: 0)
+                           perk_rank=lambda name: 0,
+                           alignment=SimpleNamespace(value=moral),
+                           ethos=SimpleNamespace(value=ethos))
 
 
 class TestTheRules:
@@ -45,6 +48,31 @@ class TestTheRules:
         f.fight(low, high, elapsed=0)
         assert low.next_ttl == 100_000 - int(100_000 * 0.05 * 1.5)
         assert high.next_ttl == 100_000 + 5_000
+
+
+    def test_a_transfer_is_sized_by_the_loser_and_can_carry_over(self):
+        f = Fights(RULES["transfer"], ["bully"], seed=1)
+        low = who(1, 20, value=10**6, next_ttl=1_000)          # surely wins
+        high = who(2, 25, value=1, next_ttl=100_000)
+        f.fight(low, high, elapsed=0)
+        assert high.next_ttl == 105_000                        # 5% of its own
+        assert low.next_ttl == 1_000 - int(5_000 * 1.5)        # past zero: a level up
+
+
+    def test_luck_scales_each_fighters_stake(self):
+        f = Fights(RULES["luck"], ["bully"], seed=1)
+        calm = who(1, 25, value=10**6, ethos="lawful")          # surely wins
+        wild = who(2, 25, value=1, ethos="chaotic")
+        f.fight(calm, wild, elapsed=0)
+        assert calm.next_ttl == 100_000 - int(100_000 * 0.05 * 0.5)
+        assert wild.next_ttl == 100_000 + int(100_000 * 0.05 * 1.5)
+
+    def test_good_fights_stronger_and_evil_weaker(self):
+        f = Fights(RULES["moral"], ["bully"], seed=1)
+        assert f.strength(who(1, 20, value=100, moral="good")) == 110
+        assert f.strength(who(2, 20, value=100, moral="evil")) == 90
+        assert Fights(RULES["proposed"], [], 1).strength(who(3, 20, value=100,
+                                                              moral="good")) == 100
 
 
 class TestTheHarness:
