@@ -3,6 +3,16 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.19.1 - unreleased
+
+- The site says when the next season begins, from two weeks before it, and
+  what it brings: "Hallowtide begins on 1 October: until 31 October, a third
+  of the realm's calamities, godsends and quests will come with headless
+  horsemen, pumpkins with ambitions and trick-or-treating goblins." While a
+  season lasts, its banner says when it ends.
+- The how-to-play page explains seasons, with each one's dates and what to
+  expect.
+
 ## 0.19.0 - 2026-09-11
 
 - **Seasons.** In Hallowtide (October), Midwinter (15 December to 6 January)

@@ -208,6 +208,7 @@ class Season:
     calamities: tuple[str, ...]
     godsends: tuple[str, ...]
     vigil_until: tuple[str, ...]
+    taste: str = ""                 # what to expect, for the website
 
     def covers(self, day) -> bool:
         md = (day.month, day.day)
@@ -244,6 +245,7 @@ SEASONS = [
                   "traded a riddle with a ghost for a shortcut"),
         vigil_until=("until the last pumpkin candle gutters", "until the ghosts go home",
                      "until the harvest moon sets"),
+        taste="headless horsemen, pumpkins with ambitions and trick-or-treating goblins",
     ),
     Season(
         "Midwinter", (12, 15), (1, 6),
@@ -269,6 +271,7 @@ SEASONS = [
                   "found a warm hearth, and a shortcut behind it"),
         vigil_until=("through the longest night", "until the yule log burns down",
                      "until the first snow melts"),
+        taste="snowmen with grudges, carolling geese and runaway gingerbread men",
     ),
     Season(
         "Springtide", (3, 20), (4, 20),
@@ -294,6 +297,7 @@ SEASONS = [
                   "found the thaw had opened a river road"),
         vigil_until=("until the blossom falls", "until the swallows return",
                      "until the frogs stop singing"),
+        taste="hares in a hurry, nesting griffins and frog princes who are still frogs",
     ),
 ]
 
@@ -324,19 +328,38 @@ def current_season(day=None) -> Season | None:
     return season_on(day or today())
 
 
+def _begins(season: Season, day):
+    """The next day ``season`` begins, after ``day``."""
+    import datetime as dt
+    start = dt.date(day.year, *season.start)
+    return start if start > day else dt.date(day.year + 1, *season.start)
+
+
+def _label(start) -> str:
+    import calendar
+    return f"{start.day} {calendar.month_name[start.month]}"
+
+
+def dates(season: Season) -> tuple[str, str]:
+    """When a season begins and ends, as ("1 October", "31 October")."""
+    import datetime as dt
+    return _label(dt.date(2000, *season.start)), _label(dt.date(2000, *season.end))
+
+
 def next_season(day=None) -> tuple[Season, str]:
     """The next season by the calendar, and the day it begins, as "1 October"."""
-    import calendar
-    import datetime as dt
     day = day or today()
+    season = min(SEASONS, key=lambda s: _begins(s, day))
+    return season, _label(_begins(season, day))
 
-    def begins(season):
-        start = dt.date(day.year, *season.start)
-        return start if start > day else dt.date(day.year + 1, *season.start)
 
-    season = min(SEASONS, key=begins)
-    start = begins(season)
-    return season, f"{start.day} {calendar.month_name[start.month]}"
+def upcoming(day=None, within: int = 14) -> tuple[Season, str] | None:
+    """The season beginning within ``within`` days, if one is - for telling
+    the realm what is coming."""
+    day = day or today()
+    season = min(SEASONS, key=lambda s: _begins(s, day))
+    start = _begins(season, day)
+    return (season, _label(start)) if (start - day).days <= within else None
 
 
 @dataclass(frozen=True)

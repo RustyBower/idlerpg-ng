@@ -131,8 +131,34 @@ class TestTheAdminCommand:
 
 
 class TestTheSite:
+    def banner(self, monkeypatch, day, choice=""):
+        monkeypatch.setattr(web, "load_season_choice", lambda: choice)
+        monkeypatch.setattr(web, "today", lambda: dt.date(2026, *day))
+        return web.season_banner()
+
     def test_a_banner_while_one_lasts(self, monkeypatch):
-        monkeypatch.setattr(web, "load_season", lambda: HALLOWTIDE)
-        assert "pumpkins are watching" in web.season_banner()
-        monkeypatch.setattr(web, "load_season", lambda: None)
-        assert web.season_banner() == ""
+        banner = self.banner(monkeypatch, (10, 12))
+        assert "pumpkins are watching" in banner and "Until 31 October" in banner
+        assert "trick-or-treating goblins" in banner
+
+    def test_two_weeks_ahead_it_says_what_is_coming(self, monkeypatch):
+        soon = self.banner(monkeypatch, (9, 17))
+        assert "Hallowtide begins on 1 October: until 31 October" in soon
+        assert "headless horsemen" in soon
+        assert self.banner(monkeypatch, (9, 16)) == ""        # fifteen days out
+        assert "Midwinter begins on 15 December" in self.banner(monkeypatch, (12, 3))
+
+    def test_the_how_to_play_page_lists_them(self):
+        page = web.page_game()
+        assert "<h2>Seasons</h2>" in page
+        for season in lore.SEASONS:
+            assert season.name in page and season.taste in page
+        assert "1 October to 31 October" in page and "15 December to 6 January" in page
+
+    def test_an_admins_choice_wins(self, monkeypatch):
+        assert self.banner(monkeypatch, (10, 12), choice="off") == ""
+        assert "thaw has come" in self.banner(monkeypatch, (9, 11), choice="Springtide")
+
+    def test_upcoming(self):
+        assert lore.upcoming(dt.date(2026, 9, 17)) == (HALLOWTIDE, "1 October")
+        assert lore.upcoming(dt.date(2026, 9, 11)) is None

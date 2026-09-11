@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session, selectinload
 from . import __version__
 from .config import post_cap_step
 from .engine import MAP_X, MAP_Y
-from .lore import heartland, season_named, season_on, today
+from .lore import SEASONS, dates, heartland, season_named, season_on, today, upcoming
 from .rules import Curve, seconds_to_reach, ttl
 from .text import duration, safe
 from .models import (
@@ -259,6 +259,7 @@ padding:.1rem .42rem;border-radius:4px;margin-right:.3rem;border:1px solid var(-
 @media (prefers-color-scheme:dark){.plat.discord.live{color:#9aa6ff;border-color:#5865f2}}
 .plat.npc{font-style:italic}
 .season{border-left:3px solid var(--accent);background:var(--soft);padding:.5rem .9rem;margin:1rem 0}
+.season.soon{border-left-style:dashed;background:none;color:var(--muted)}
 .heartland{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:10 8;opacity:.45}
 .plat.idle{opacity:.45}
 .plat.none{opacity:.4;border:none}
@@ -450,24 +451,52 @@ def event_feed(limit=10):
     return f'<h2>Recently in the realm</h2><ul class="feed">{items}</ul>'
 
 
-def load_season():
-    """The season as the bot sees it: an admin's SEASON choice if one is
-    stored, the calendar otherwise."""
+def load_season_choice() -> str:
+    """An admin's SEASON choice - a season's name or "off" - or "" to follow
+    the calendar, as the bot does."""
     from .models import Setting
     try:
         with Session(db()) as s:
             row = s.get(Setting, "season")
-            choice = row.value if row else ""
+            return row.value if row else ""
     except Exception:
-        choice = ""
-    if choice == "off":
-        return None
-    return season_named(choice) or season_on(today())
+        return ""
 
 
 def season_banner() -> str:
-    season = load_season()
-    return f'<p class="season">{E(season.arrives)}</p>' if season else ""
+    """The season while it lasts; for the two weeks before one, when it
+    begins; nothing if an admin has switched seasons off."""
+    choice = load_season_choice()
+    if choice == "off":
+        return ""
+    season = season_named(choice) or season_on(today())
+    if season is not None:
+        return (f'<p class="season">{E(season.arrives)} Until {E(dates(season)[1])}, '
+                f'a third of the realm&#39;s calamities, godsends and quests come with '
+                f'{E(season.taste)}.</p>')
+    soon = upcoming(today())
+    if soon is not None:
+        coming, begins = soon
+        return (f'<p class="season soon">{E(coming.name)} begins on {E(begins)}: until '
+                f'{E(dates(coming)[1])}, a third of the realm&#39;s calamities, godsends '
+                f'and quests will come with {E(coming.taste)}.</p>')
+    return ""
+
+
+def seasons_section() -> str:
+    """For the how-to-play page: what seasons are, and when each falls."""
+    rows = "".join(
+        f'<tr><td>{E(s.name)}</td><td>{E(" to ".join(dates(s)))}</td>'
+        f'<td>{E(s.taste)}</td></tr>'
+        for s in SEASONS)
+    return f"""<h2>Seasons</h2>
+<p class="muted">Three times a year the realm keeps a season. While it lasts, a third of the
+calamities, godsends and quests draw on its own creatures, helpers, treasures and errands,
+and the realm is told as each begins and ends. Only the words change: how often things
+happen, and what they do to your clock, stay the same.</p>
+<table><thead><tr><th>Season</th><th>When</th><th>Expect</th></tr></thead>
+<tbody>{rows}</tbody></table>
+"""
 
 
 def star(p) -> str:
@@ -770,6 +799,7 @@ so nobody can be piled on, and beating newcomers wins next to nothing. Two
 characters who land on the same tile of the map fight too, on the same terms, at most
 once a day for any pair.</p>
 
+{seasons_section()}
 <h2>The climb</h2>
 <p class="muted">Each level costs {RP_STEP}&times; the last, so progress is gentle
 early and slow later. {E(WALL)}</p>
