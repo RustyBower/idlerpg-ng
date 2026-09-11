@@ -21,7 +21,7 @@ import logging
 
 import discord
 
-from ..engine import Engine, RegistrationError
+from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
 
@@ -41,7 +41,7 @@ HELP = (
     "`!register <name> <password> <class>`, `!login <name> <password>` "
     "(an IRC character works too, making it one character on both), "
     "`!merge <name> <password>` (fold another character of yours into this "
-    "one), `!whoami`"
+    "one), `!align <good|neutral|evil>`, `!whoami`"
 )
 
 # These carry a password, so they are accepted only in a DM.
@@ -512,6 +512,23 @@ class DiscordAdapter(discord.Client):
                 await reply(f"Cannot merge: {exc}")
                 return
             await reply(outcome.message)
+        elif verb == "align":
+            player = self.engine.player_for(Platform.DISCORD, external)
+            if player is None:
+                await reply("You have no character here yet - `!register` first.")
+                return
+            if not args:
+                await reply(
+                    f"`!align <good|neutral|evil>` - you are "
+                    f"{player.alignment.value}. {ALIGNMENT_HELP}"
+                )
+                return
+            try:
+                alignment = self.engine.set_alignment(player, args[0])
+            except RegistrationError as exc:
+                await reply(f"Cannot align: {exc}.")
+                return
+            await reply(f"You are now {alignment.value}.")
         elif verb == "whoami":
             player = self.engine.player_for(Platform.DISCORD, external)
             if player is None:

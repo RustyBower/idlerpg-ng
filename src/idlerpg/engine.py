@@ -74,6 +74,16 @@ class RegistrationError(Exception):
     pass
 
 
+# What each alignment does, for the help text on both platforms. Kept next to
+# set_alignment rather than in an adapter so the two cannot drift apart.
+ALIGNMENT_HELP = (
+    "good: more critical hits, and now and then two good players pray "
+    "together for time off; evil: fewer critical hits, and now and then you "
+    "steal a better item from a good player - or your god adds to your clock; "
+    "neutral: in between, and neither event."
+)
+
+
 class Engine:
     def __init__(self, session: Session, curve: Curve | None = None,
                  rng: random.Random | None = None):
@@ -413,6 +423,28 @@ class Engine:
         if absorb is None:
             raise RegistrationError("wrong name or password")
         return self.merge(keeper, absorb)
+
+    # -------------------------------------------------------------- alignment
+
+    def set_alignment(self, player: Player, choice: str) -> Alignment:
+        """Change a player's alignment, as the original ALIGN did.
+
+        Free, and announced to the realm - on every platform, so queued rather
+        than returned. Choosing the alignment you already have announces
+        nothing.
+        """
+        alignment = {a.value: a for a in Alignment}.get(choice.strip().lower())
+        if alignment is None:
+            raise RegistrationError("choose good, neutral or evil")
+        if alignment is player.alignment:
+            return alignment
+        player.alignment = alignment
+        self.session.commit()
+        self._pending.append(Outcome(
+            f"{player.name} has changed alignment to: {alignment.value}.",
+            kind="alignment",
+        ))
+        return alignment
 
     # --------------------------------------------------------------- settings
 

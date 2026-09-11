@@ -377,3 +377,36 @@ class TestLoginsSurviveRestarts:
         fresh = self._restart(adapter)
         feed(fresh, f":{MASK} JOIN #elsewhere")
         assert not p.is_idling
+
+
+class TestAlignCommand:
+    def _registered(self, adapter):
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :REGISTER rusty pw Sysadmin")
+        adapter.writer.lines.clear()
+        return adapter.engine.find_player("rusty")
+
+    def test_align_changes_it(self, adapter):
+        from idlerpg.models import Alignment
+        p = self._registered(adapter)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :ALIGN evil")
+        assert p.alignment is Alignment.EVIL
+        assert "You are now evil" in sent(adapter)
+
+    def test_without_an_argument_it_explains(self, adapter):
+        self._registered(adapter)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :ALIGN")
+        assert "you are neutral" in sent(adapter)
+        assert "critical hits" in sent(adapter)
+
+    def test_nonsense_is_reported(self, adapter):
+        self._registered(adapter)
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :ALIGN chaotic")
+        assert "Cannot align" in sent(adapter)
+
+    def test_it_needs_a_login(self, adapter):
+        feed(adapter, ":stranger!u@h PRIVMSG idlerpg :ALIGN good")
+        assert "Log in first" in sent(adapter)
+
+    def test_help_mentions_it(self, adapter):
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :HELP")
+        assert "ALIGN" in sent(adapter)

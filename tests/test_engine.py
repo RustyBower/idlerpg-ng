@@ -333,3 +333,38 @@ class TestMerge:
         solo = register(engine, "solo", external="solo")
         engine.tick(100)
         assert a.next_ttl == solo.next_ttl
+
+
+class TestAlignment:
+    """ALIGN as the original had it: free, and announced to the realm."""
+
+    def test_changing_alignment(self, engine):
+        from idlerpg.models import Alignment
+        p = register(engine)
+        assert engine.set_alignment(p, "Evil") is Alignment.EVIL
+        assert p.alignment is Alignment.EVIL
+
+    def test_it_costs_nothing(self, engine):
+        p = register(engine)
+        before = p.next_ttl
+        engine.set_alignment(p, "good")
+        assert p.next_ttl == before
+
+    def test_a_change_is_announced_everywhere(self, engine):
+        p = register(engine)
+        engine.tick(1)  # drain the registration announcement
+        engine.set_alignment(p, "good")
+        out = engine.tick(1)
+        assert any(o.kind == "alignment" and "rusty has changed alignment to: good"
+                   in o.message for o in out)
+
+    def test_no_change_no_announcement(self, engine):
+        p = register(engine)
+        engine.tick(1)
+        engine.set_alignment(p, "neutral")  # already neutral
+        assert not any(o.kind == "alignment" for o in engine.tick(1))
+
+    def test_nonsense_is_refused(self, engine):
+        p = register(engine)
+        with pytest.raises(RegistrationError):
+            engine.set_alignment(p, "chaotic")

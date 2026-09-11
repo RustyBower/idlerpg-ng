@@ -19,6 +19,7 @@ Running at [idlerpg.129irc.com](https://idlerpg.129irc.com/) on
     /msg idlerpg REGISTER <name> <password> <class>
     /msg idlerpg LOGIN <name> <password>
     /msg idlerpg WHOAMI
+    /msg idlerpg ALIGN <good|neutral|evil>
     /msg idlerpg MERGE <name> <password>   # fold another character into this one
 
 The network blocks private messages from brand new connections, so wait about
@@ -37,6 +38,7 @@ role too, and a DM explaining how to register if you have no character yet:
     !register <name> <password> <class>
     !login <name> <password>
     !whoami
+    !align <good|neutral|evil>
     !merge <name> <password>
 
 `!register`, `!login` and `!merge` carry a password, so they are refused in a

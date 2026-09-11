@@ -25,7 +25,7 @@ import re
 import ssl
 from dataclasses import dataclass
 
-from ..engine import Engine, RegistrationError
+from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
 
@@ -66,8 +66,8 @@ def parse(line: str) -> Message | None:
 HELP = (
     "Stay connected and quiet to level up. "
     "REGISTER <name> <password> <class> | LOGIN <name> <password> (a Discord "
-    "character too) | LOGOUT | WHOAMI | MERGE <name> <password> (fold another "
-    "character of yours into this one)"
+    "character too) | LOGOUT | WHOAMI | ALIGN <good|neutral|evil> | "
+    "MERGE <name> <password> (fold another character of yours into this one)"
 )
 
 
@@ -230,6 +230,24 @@ class IRCAdapter:
                 return
             self.unbind(nick, Penalty.LOGOUT)
             self.notice(nick, "Logged out. Your timer took the usual penalty.")
+        elif verb == "ALIGN":
+            player = self.character_for_nick(nick)
+            if player is None:
+                self.notice(nick, "Log in first, then ALIGN <good|neutral|evil>.")
+                return
+            if not args:
+                self.notice(
+                    nick,
+                    f"ALIGN <good|neutral|evil> - you are "
+                    f"{player.alignment.value}. {ALIGNMENT_HELP}",
+                )
+                return
+            try:
+                alignment = self.engine.set_alignment(player, args[0])
+            except RegistrationError as exc:
+                self.notice(nick, f"Cannot align: {exc}.")
+                return
+            self.notice(nick, f"You are now {alignment.value}.")
         elif verb == "MERGE":
             player = self.character_for_nick(nick)
             if player is None:

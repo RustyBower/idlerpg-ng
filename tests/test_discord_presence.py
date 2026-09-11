@@ -292,3 +292,33 @@ class TestRestarts:
         monkeypatch.setattr(fresh, "ensure_optin_message", _noop)
         await fresh.on_ready()
         assert presence(fresh) is Presence.ACTIVE
+
+
+class TestAlignCommand:
+    @pytest.mark.asyncio
+    async def test_align_works_in_the_channel(self, adapter, guild):
+        from idlerpg.models import Alignment
+        member = Member(guild, role=True)
+        await command(adapter, member, "!register rusty pw Sysadmin")
+        m = await command(adapter, member, "!align good", channel=Channel())
+        assert "You are now good" in m.replies[0]
+        assert not m.deleted  # no password, so no need to hide it
+        assert adapter.engine.find_player("rusty").alignment is Alignment.GOOD
+
+    @pytest.mark.asyncio
+    async def test_without_an_argument_it_explains(self, adapter, guild):
+        member = Member(guild, role=True)
+        await command(adapter, member, "!register rusty pw Sysadmin")
+        m = await command(adapter, member, "!align")
+        assert "you are neutral" in m.replies[0]
+        assert "critical hits" in m.replies[0]
+
+    @pytest.mark.asyncio
+    async def test_it_needs_a_character(self, adapter, guild):
+        m = await command(adapter, Member(guild, role=True), "!align evil")
+        assert "!register" in m.replies[0]
+
+    @pytest.mark.asyncio
+    async def test_help_mentions_it(self, adapter, guild):
+        m = await command(adapter, Member(guild, role=True), "!help")
+        assert "!align" in m.replies[0]

@@ -651,6 +651,7 @@ def page_game():
   <tr><th>Register</th><td><code>/msg {E(BOT_NICK)} REGISTER &lt;name&gt; &lt;password&gt; &lt;class&gt;</code></td></tr>
   <tr><th>Log in later</th><td><code>/msg {E(BOT_NICK)} LOGIN &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Check yourself</th><td><code>/msg {E(BOT_NICK)} WHOAMI</code></td></tr>
+  <tr><th>Choose alignment</th><td><code>/msg {E(BOT_NICK)} ALIGN good|neutral|evil</code></td></tr>
   <tr><th>Merge a second character</th><td><code>/msg {E(BOT_NICK)} MERGE &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Log out</th><td><code>/msg {E(BOT_NICK)} LOGOUT</code></td></tr>
 </table>
@@ -665,6 +666,7 @@ from the same address - a bouncer keeps that stable.</p>
   <tr><th>Register</th><td><code>!register &lt;name&gt; &lt;password&gt; &lt;class&gt;</code></td></tr>
   <tr><th>Log in later</th><td><code>!login &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Check yourself</th><td><code>!whoami</code></td></tr>
+  <tr><th>Choose alignment</th><td><code>!align good|neutral|evil</code></td></tr>
   <tr><th>Merge a second character</th><td><code>!merge &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Commands</th><td><code>!help</code></td></tr>
 </table>
@@ -711,9 +713,13 @@ instead of compounding forever.</p>
 <p class="muted">You find items in ten slots - amulet, charm, helm, boots, gloves,
 ring, leggings, shield, tunic and weapon. Their total is your strength in battles,
 which the bot starts on its own.</p>
-<p class="muted">Alignment changes how battles resolve: <span class="good">good</span>
-players get a bonus fighting together, <span class="evil">evil</span> ones can steal
-items but take a penalty. Neutral sits in between.</p>
+<p class="muted">Pick an alignment with <code>ALIGN good|neutral|evil</code> on IRC or
+<code>!align</code> on Discord; switching is free. <span class="good">Good</span>
+players land critical hits in battle more often, and now and then two of them pray
+together and both get 5-12% off their time to the next level.
+<span class="evil">Evil</span> ones land fewer, and now and then either steal a better
+item from a good player or are forsaken by their god and have 1-5% added to their
+clock. Neutral sits in between and is left out of both.</p>
 <p class="muted">Quests send a party across the {MAP_X}&times;{MAP_Y} realm. Finish one
 and everyone involved gains time; if a quester talks, parts or quits, it fails and
 the whole realm is set back.</p>"""
