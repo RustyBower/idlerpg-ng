@@ -22,7 +22,9 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from . import __version__
+from .config import post_cap_step
 from .engine import MAP_X, MAP_Y
+from .rules import Curve, seconds_to_reach, ttl
 from .text import duration, safe
 from .models import (
     EventLog, PenaltyRecord, Player, Quest, QuestParticipant, upgrade,
@@ -38,6 +40,13 @@ BOT_NICK = os.environ.get("IRPG_BOT", "idlerpg")
 # IRPG_ names are the ones the site used to read on its own; they still work.
 RP_BASE = int(os.environ.get("RP_BASE") or os.environ.get("IRPG_RPBASE") or 600)
 RP_STEP = float(os.environ.get("RP_STEP") or os.environ.get("IRPG_RPSTEP") or 1.12)
+CURVE = Curve(base_seconds=RP_BASE, step=RP_STEP, post_cap_step=post_cap_step())
+WALL = (
+    "Past level 60 each level costs a day more than the last."
+    if CURVE.post_cap_step is None else
+    f"Past level 60 each level costs {CURVE.post_cap_step}× the last: 60 is a "
+    "wall. Prestige starts you over for perks, and the Endurance perk eases the wall."
+)
 
 _engine = None
 
@@ -629,21 +638,10 @@ def page_player(player):
 
 
 def page_game():
-    levels = [10, 20, 30, 40, 50, 60, 70, 80]
     rows = ""
-    cumulative = 0.0
-    prev = 0
-    for lvl in levels:
-        for l in range(prev, lvl):
-            cumulative += (
-                RP_BASE * (RP_STEP**l) if l <= 60
-                else RP_BASE * (RP_STEP**60) + 86400 * (l - 60)
-            )
-        prev = lvl
-        step = (
-            RP_BASE * (RP_STEP**lvl) if lvl <= 60
-            else RP_BASE * (RP_STEP**60) + 86400 * (lvl - 60)
-        )
+    for lvl in [10, 20, 30, 40, 50, 60, 65, 70, 80]:
+        step = ttl(lvl, CURVE)
+        cumulative = seconds_to_reach(lvl, CURVE)
         rows += (
             f'<tr><td class="num">{lvl}</td><td class="num">{E(duration(step))}</td>'
             f'<td class="num">{E(duration(cumulative))}</td></tr>'
@@ -719,8 +717,7 @@ scale with your level, so the higher you climb the more a slip costs.</p>
 
 <h2>The climb</h2>
 <p class="muted">Each level costs {RP_STEP}&times; the last, so progress is gentle
-early and slow later. Past level 60 the curve flattens to a fixed day per level
-instead of compounding forever.</p>
+early and slow later. {E(WALL)}</p>
 <table><thead><tr><th class="num">Level</th><th class="num">That level costs</th>
 <th class="num">Total to reach it</th></tr></thead><tbody>{rows}</tbody></table>
 

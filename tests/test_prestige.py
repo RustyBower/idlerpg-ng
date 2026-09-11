@@ -45,13 +45,13 @@ class TestStartingOver:
     def test_without_confirm_it_only_explains(self, engine):
         p = veteran(engine, level=62)
         reply = do(engine, p, "PRESTIGE")
-        assert "12 points" in reply and p.level == 62
+        assert "2 points" in reply and p.level == 62
 
     def test_confirm_resets_and_pays(self, engine):
         p = veteran(engine, level=60)
         engine.tick(1)
         do(engine, p, "PRESTIGE confirm")
-        assert (p.level, p.prestige, p.points) == (0, 1, 10)
+        assert (p.level, p.prestige, p.points) == (0, 1, 2)
         assert all(i.value == 0 for i in p.items)
         assert p.next_ttl == int(ttl(0, engine.curve))
         assert any(o.kind == "prestige" for o in engine.tick(1))
@@ -166,6 +166,45 @@ class TestOnThePlatforms:
             e.session.commit()
             irc.writer.lines.clear()
             irc.handle(parse(":vet!u@h PRIVMSG idlerpg :PRESTIGE"))
-            assert "11 points" in "\n".join(irc.writer.lines)
+            assert "2 points" in "\n".join(irc.writer.lines)
             irc.handle(parse(":vet!u@h PRIVMSG idlerpg :PERKS"))
             assert all(len(line) < 512 for line in irc.writer.lines)
+
+
+class TestPointsAreScarce:
+    @pytest.mark.parametrize("level,points", [
+        (59, 0), (60, 2), (64, 2), (65, 3), (70, 4), (82, 6),
+    ])
+    def test_two_at_60_and_one_per_five_levels_after(self, level, points):
+        assert prestige.points_for(level) == points
+
+
+class TestEndurance:
+    def test_it_opens_only_after_ten_ranks_elsewhere(self, engine):
+        p = veteran(engine)
+        p.points = 30
+        assert "opens once you have 10 ranks" in do(engine, p, "PERK endurance")
+        for name in ("swiftness", "composure"):
+            for _ in range(5):
+                do(engine, p, f"PERK {name}")
+        assert "rank 1" in do(engine, p, "PERK endurance")
+        assert p.points == 30 - 10 - 2        # two points for the deep perk
+
+    def test_it_costs_two_points_a_rank(self, engine):
+        p = veteran(engine)
+        p.set_perk_rank("swiftness", 5)
+        p.set_perk_rank("composure", 5)
+        p.points = 1
+        assert "costs 2 points" in do(engine, p, "PERK endurance")
+
+    def test_it_eases_the_wall_and_nothing_below_it(self, engine):
+        c = engine.curve
+        p = veteran(engine)
+        wall = events.level_cost(p, 70, c)
+        assert wall == pytest.approx(ttl(70, c))              # 1.25 a level past 60
+        p.set_perk_rank("endurance", 2)                       # 40% of the way back
+        eased = c.base_seconds * c.step ** 60 * (1.25 - 0.13 * 0.4) ** 10
+        assert events.level_cost(p, 70, c) == pytest.approx(eased)
+        p.set_perk_rank("endurance", 5)                       # the ordinary curve
+        assert events.level_cost(p, 70, c) == pytest.approx(c.base_seconds * c.step ** 70)
+        assert events.level_cost(p, 50, c) == ttl(50, c)

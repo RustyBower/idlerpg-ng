@@ -15,6 +15,7 @@ import random
 from dataclasses import dataclass
 
 from .lore import LORE
+from .rules import ttl
 from .text import duration
 
 DAY = 86400
@@ -59,6 +60,7 @@ FORTUNE_PER_RANK = 0.05     # godsends this much stronger
 WARDING_PER_RANK = 0.05     # calamities this much weaker
 STRIDE_PER_RANK = 0.20      # journeys walked this much faster
 CHAMPION_PER_RANK = 0.02    # battle strength this much greater
+ENDURANCE_PER_RANK = 0.20   # the wall past the cap, eased this much toward the curve
 
 
 def rank(player, perk: str) -> int:
@@ -74,6 +76,24 @@ def swiftness(player) -> float:
 
 def champion(player) -> float:
     return 1 + CHAMPION_PER_RANK * rank(player, "champion")
+
+
+def level_cost(player, level: int, curve) -> float:
+    """What reaching the level after ``level`` costs this player, in seconds.
+
+    Past the cap each level costs post_cap_step times the last: the wall.
+    Endurance eases that growth back toward the ordinary curve's step, all
+    the way at five ranks, and Swiftness trims the whole. Under the
+    original's linear cap there is no wall, and Endurance has nothing to do.
+    """
+    if level <= curve.cap_level or curve.post_cap_step is None:
+        cost = ttl(level, curve)
+    else:
+        ease = min(1.0, ENDURANCE_PER_RANK * rank(player, "endurance"))
+        growth = curve.post_cap_step - (curve.post_cap_step - curve.step) * ease
+        cost = (curve.base_seconds * curve.step ** curve.cap_level
+                * growth ** (level - curve.cap_level))
+    return cost * swiftness(player)
 
 
 def ethos(player) -> str:

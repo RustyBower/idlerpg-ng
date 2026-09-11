@@ -309,6 +309,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--penalty-step", type=float,
                         help="how fast penalties grow, as RP_PENALTY_STEP "
                              "(default %s)" % Curve().penalty_step)
+    parser.add_argument("--post-cap-step",
+                        help="how much more each level past 60 costs than the last, "
+                             'as RP_POST_CAP_STEP, or "linear" for the original\'s '
+                             "day a level (default %s)" % Curve().post_cap_step)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--seeds", type=int, default=1,
                         help="runs to average, seeded from --seed upward")
@@ -329,8 +333,12 @@ def main(argv: list[str] | None = None) -> int:
     apply_overrides(args.set)()  # refuse unknown names before any work starts
     seeds = list(range(args.seed, args.seed + args.seeds))
     default = Curve()
+    post = default.post_cap_step
+    if args.post_cap_step is not None:
+        post = None if args.post_cap_step.lower() == "linear" else float(args.post_cap_step)
     curve = Curve(step=args.rp_step or default.step,
-                  penalty_step=args.penalty_step or default.penalty_step)
+                  penalty_step=args.penalty_step or default.penalty_step,
+                  post_cap_step=post)
     results = run_many(roster, seeds, jobs=args.jobs, overrides=args.set,
                        days=args.days, step=args.step, habits=habits,
                        start_level=args.start_level, curve=curve)
@@ -340,6 +348,8 @@ def main(argv: list[str] | None = None) -> int:
         f"rpstep {curve.step}" if curve.step != default.step else "",
         f"penalty step {curve.penalty_step}"
         if curve.penalty_step != default.penalty_step else "",
+        f"past 60 {curve.post_cap_step or 'linear'}"
+        if curve.post_cap_step != default.post_cap_step else "",
         *args.set,
     ]))
     print(report(rows, args.days, args.step, seeds, len(roster), label=label))

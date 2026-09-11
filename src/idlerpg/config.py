@@ -5,7 +5,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-from .rules import Curve
+from .rules import DEFAULT_POST_CAP_STEP, Curve
+
+
+def post_cap_step() -> float | None:
+    """RP_POST_CAP_STEP: how much more each level past 60 costs than the last,
+    or "linear" for the original's day-a-level."""
+    raw = os.environ.get("RP_POST_CAP_STEP", str(DEFAULT_POST_CAP_STEP)).strip().lower()
+    return None if raw in ("", "linear", "none") else float(raw)
 
 
 def _bool(name: str, default: bool) -> bool:
@@ -97,5 +104,6 @@ class Config:
             base_seconds=int(os.environ.get("RP_BASE", "600")),
             step=float(os.environ.get("RP_STEP", "1.12")),
             penalty_step=float(os.environ.get("RP_PENALTY_STEP", "1.14")),
+            post_cap_step=post_cap_step(),
         )
     )

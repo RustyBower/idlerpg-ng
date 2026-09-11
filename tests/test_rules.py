@@ -20,7 +20,8 @@ from idlerpg.rules import (
     ttl,
 )
 
-UPSTREAM = Curve(step=1.16, penalty_step=1.14)
+# The original: steeper below the cap, a day a level above it.
+UPSTREAM = Curve(step=1.16, penalty_step=1.14, post_cap_step=None)
 
 
 class TestCurve:
@@ -32,11 +33,23 @@ class TestCurve:
         assert ttl(10, c) == pytest.approx(600 * 1.12**10)
         assert ttl(60, c) == pytest.approx(600 * 1.12**60)
 
-    def test_linear_above_the_cap(self):
-        c = Curve(base_seconds=600, step=1.12, cap_level=60)
+    def test_the_originals_cap_is_linear(self):
+        c = Curve(base_seconds=600, step=1.12, cap_level=60, post_cap_step=None)
         # Each level past the cap costs exactly one more day than the last.
         assert ttl(61, c) - ttl(60, c) == pytest.approx(LINEAR_STEP_SECONDS)
         assert ttl(70, c) - ttl(60, c) == pytest.approx(10 * LINEAR_STEP_SECONDS)
+
+    def test_the_realm_compounds_harder_past_the_cap(self):
+        c = Curve()
+        assert ttl(61, c) / ttl(60, c) == pytest.approx(c.post_cap_step)
+        assert ttl(70, c) / ttl(60, c) == pytest.approx(c.post_cap_step ** 10)
+
+    def test_penalties_keep_the_linear_cap(self):
+        """A wall for levels, not for talking: past 60 a penalty still grows
+        by the original's day a level, not by the steep step."""
+        from idlerpg.rules import penalty_ttl
+        c = Curve()
+        assert penalty_ttl(61, c) - penalty_ttl(60, c) == pytest.approx(LINEAR_STEP_SECONDS)
 
     def test_curve_is_continuous_at_the_cap(self):
         c = Curve(cap_level=60)
@@ -64,10 +77,13 @@ class TestWhyNotUpstream:
     def test_upstream_level_100_is_years_away(self):
         assert seconds_to_reach(100, UPSTREAM) / 86400 / 365 == pytest.approx(8.6, abs=0.3)
 
-    def test_chosen_curve_is_reachable(self):
+    def test_chosen_curve_reaches_60_and_then_walls_it(self):
         chosen = Curve()
         assert seconds_to_reach(60, chosen) / 86400 == pytest.approx(51.9, abs=1.0)
-        assert seconds_to_reach(100, chosen) / 86400 / 365 == pytest.approx(3.0, abs=0.2)
+        past = lambda level: (seconds_to_reach(level, chosen)
+                              - seconds_to_reach(60, chosen)) / 86400
+        assert past(70) == pytest.approx(207, abs=5)          # about seven months
+        assert past(80) / 365 > 5                             # years
 
 
 class TestPenalties:

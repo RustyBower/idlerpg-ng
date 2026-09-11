@@ -1,8 +1,8 @@
 """Prestige: an opt-in fresh start, for points to spend on perks.
 
-From level 60 a character may start over. Past 60 every level costs a week or
-more, so the leaders' lead would otherwise become permanent and the levels
-stop feeling like progress. Starting over trades the level - never taken, only
+From level 60 a character may start over. Past 60 each level costs a quarter
+more than the last - 70 is half a year on, 80 years - so the levels stop being
+the way forward. Starting over trades the level - never taken, only
 offered - for a star beside the name, standings that rank prestige first, and
 points to spend on perks that make the next climb a little different.
 
@@ -10,9 +10,13 @@ The reset is to level 0 with fresh items, bar any the Heirloom perk keeps:
 otherwise a reborn character with its old gear would flatten every newcomer.
 Name, alignment, logins and perks all stay.
 
-Points are one per level past 50, so waiting beyond 60 is a real choice: each
-level there earns another point and costs another week. Perks are capped, and
-their numbers live in events.py beside the alignment tuning, where the
+Points are few: two for reaching 60 and one more for every five levels past
+it, so waiting is a real choice - five levels past 60 take about seven weeks,
+as long as climbing back. Most perks cost a point a rank. The deepest,
+Endurance, softens the wall; it opens only to a character with ranks in other
+perks already, and costs more, so reaching it takes many fresh starts. Perks
+are capped, and
+their effects live in events.py beside the alignment tuning, where the
 simulator can reach them.
 """
 
@@ -23,16 +27,18 @@ from dataclasses import dataclass
 from . import events, quests
 from .events import Outcome
 from .models import Player
-from .rules import ttl
 
 MIN_LEVEL = 60
-POINTS_FROM = 50
+POINTS_AT_MIN = 2     # for reaching MIN_LEVEL
+POINTS_EVERY = 5      # and one more for every this many levels past it
 
 
 @dataclass(frozen=True)
 class Perk:
     most: int
     text: str
+    cost: int = 1       # points per rank
+    requires: int = 0   # ranks needed in other perks before the first
 
 
 PERKS = {
@@ -43,11 +49,16 @@ PERKS = {
     "heirloom": Perk(3, "keep your best item through a prestige, one per rank"),
     "stride": Perk(5, "your quest party walks 20% faster per rank"),
     "champion": Perk(5, "2% more battle strength per rank"),
+    "endurance": Perk(5, "the wall past 60 grows 20% less steeply per rank; "
+                         "five bring it back to the ordinary curve",
+                      cost=2, requires=10),
 }
 
 
 def points_for(level: int) -> int:
-    return max(0, level - POINTS_FROM)
+    if level < MIN_LEVEL:
+        return 0
+    return POINTS_AT_MIN + (level - MIN_LEVEL) // POINTS_EVERY
 
 
 def _preview(player: Player) -> str:
@@ -58,8 +69,8 @@ def _preview(player: Player) -> str:
     return (f"PRESTIGE confirm starts {player.name} over at level 0 with {items}, "
             f"for {points_for(player.level)} points to spend on perks "
             f"(you have {player.points} unspent). You keep your name, alignment "
-            f"and perks, and gain a star. Every level you wait past "
-            f"{MIN_LEVEL} earns another point.")
+            f"and perks, and gain a star. Every {POINTS_EVERY} levels you wait "
+            f"past {MIN_LEVEL} earns another point.")
 
 
 def start_over(engine, player: Player) -> str:
@@ -74,7 +85,7 @@ def start_over(engine, player: Player) -> str:
         if item not in kept:
             item.value, item.tag = 0, ""
     player.level = 0
-    player.next_ttl = int(ttl(0, engine.curve) * events.swiftness(player))
+    player.next_ttl = int(events.level_cost(player, 0, engine.curve))
     player.prestige = (player.prestige or 0) + 1
     player.points = (player.points or 0) + earned
     engine.session.commit()
@@ -85,9 +96,23 @@ def start_over(engine, player: Player) -> str:
             f"points: PERKS shows what they buy.")
 
 
+def _terms(perk: Perk) -> str:
+    terms = []
+    if perk.cost > 1:
+        terms.append(f"{perk.cost} points a rank")
+    if perk.requires:
+        terms.append(f"opens after {perk.requires} ranks in other perks")
+    return f" ({', '.join(terms)})" if terms else ""
+
+
+def _elsewhere(player: Player, name: str) -> int:
+    return sum(player.perk_rank(other) for other in PERKS if other != name)
+
+
 def perks_text(player: Player) -> str:
-    ranks = " | ".join(f"{name} {player.perk_rank(name)}/{perk.most}: {perk.text}"
-                       for name, perk in PERKS.items())
+    ranks = " | ".join(
+        f"{name} {player.perk_rank(name)}/{perk.most}: {perk.text}{_terms(perk)}"
+        for name, perk in PERKS.items())
     return f"{player.points or 0} points to spend (PERK <name>). | {ranks}"
 
 
@@ -99,10 +124,17 @@ def buy(engine, player: Player, name: str) -> str:
     have = player.perk_rank(name)
     if have >= perk.most:
         return f"{name} is already at its most, {perk.most} ranks."
-    if (player.points or 0) < 1:
+    elsewhere = _elsewhere(player, name)
+    if elsewhere < perk.requires:
+        return (f"{name} opens once you have {perk.requires} ranks in other perks; "
+                f"you have {elsewhere}.")
+    points = player.points or 0
+    if points < 1:
         return "You have no points to spend. Prestige earns them, from level 60."
+    if points < perk.cost:
+        return f"{name} costs {perk.cost} points a rank; you have {points}."
     player.set_perk_rank(name, have + 1)
-    player.points -= 1
+    player.points = points - perk.cost
     engine.session.commit()
     return f"{name} is now rank {have + 1} of {perk.most}. {player.points} points left."
 

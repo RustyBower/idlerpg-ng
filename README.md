@@ -94,10 +94,14 @@ top of `events.py`, to be tuned as the realm is watched.
 **Prestige.** From level 60 you may start over: `PRESTIGE` shows what it
 would do, `PRESTIGE confirm` does it. You go back to level 0 with fresh items,
 keep your name, alignment and perks, gain a ★ on the site - where prestige
-ranks first - and earn a point per level past 50 to spend with `PERK <name>`.
-`PERKS` lists them: swiftness, composure, fortune, warding, heirloom, stride
-and champion, each capped. It is never forced; past 60 each level costs a week
-or more, so waiting earns more points at a real price.
+ranks first - and earn points to spend with `PERK <name>`: two for reaching 60
+and one more for every five levels past it. `PERKS` lists them: swiftness,
+composure, fortune, warding, heirloom, stride and champion at a point a rank,
+each capped, and endurance - which eases the wall past 60 - opening only after
+ten ranks elsewhere, at two points a rank. It is never forced, but past 60
+each level costs a quarter more than the last: 65 is seven weeks on, 70 half a
+year, 80 six years. Waiting earns more points at a real price, and 60 is where
+most characters will want to begin again.
 
 **Events** are composed from the realm's own lore: thirty named places on the
 map, a cast of creatures and helpers, and small grammars that make tens of
@@ -143,6 +147,7 @@ database with simulated players, and reports how each alignment fared:
     python -m idlerpg.simulate --days 60 --per-alignment 5 --talk 1 --step 900
     python -m idlerpg.simulate --players "lawful good:5,chaotic evil:5"
     python -m idlerpg.simulate --set LUCK.chaotic=1.25 --json run.json
+    python -m idlerpg.simulate --start-level 55 --days 180 --post-cap-step linear
 
 The number to watch is pace - progress earned over time elapsed. Idling alone
 gives 1.0 less time away; events push it up and penalties pull it down.
@@ -179,17 +184,28 @@ uniques, and items left lying on the map.
 
 ## Tuning
 
-`rpstep` defaults to **1.12**, not upstream's 1.16.
+`rpstep` defaults to **1.12**, not upstream's 1.16, and past level 60 the
+curve compounds harder, at **1.25**, where upstream adds a day a level.
 
-| rpstep | to level 60 | level 80 | level 100 |
-|--------|-------------|----------|-----------|
-| 1.16 (upstream) | 319.8d | 4.2y | 8.6y |
-| 1.12 (default) | 51.9d | 1.0y | 3.0y |
+| curve | to level 60 | level 65 | level 70 | level 80 |
+|-------|-------------|----------|----------|----------|
+| 1.16, then +1 day (upstream) | 320d | 1.6y | 2.4y | 4.2y |
+| 1.12, then +1 day | 52d | 93d | 159d | 1.0y |
+| 1.12, then 1.25 (default) | 52d | 103d | 259d | 6.0y |
+| 1.12, then 1.5 | 52d | 134d | 2.1y | 114y |
 
 The level-60 cap that flattens the curve to +1 day per level is often described
 as the fix for unreachable high levels. It is not sufficient: at 1.16 a single
 level at 60 already costs about 51 days, so the linear term is roughly 2% of
-the step. `rpstep` is the real lever. `tests/test_rules.py` asserts the upstream
+the step. `rpstep` is the real lever, and 1.12 brings 60 within two months.
+
+Past 60 the question changes. A day a level on top of a six-day level is barely
+a curve at all, so the leaders would keep climbing and their lead would only
+grow. Compounding at 1.25 instead makes 60 a wall - each level a quarter
+dearer than the last - and prestige the way on. The Endurance perk eases the
+wall toward the ordinary 1.12 step, all the way at five ranks: 70 then comes
+3.6 months past 60 rather than 6.8. Penalties keep upstream's day a level past
+60 whatever `RP_POST_CAP_STEP` says. `tests/test_rules.py` asserts the upstream
 numbers too, so the reasoning stays visible rather than becoming an unexplained
 constant.
 
@@ -221,6 +237,7 @@ length does not change the game.
 | `SITE_URL` | `https://idlerpg.129irc.com/` | leads the channel topic |
 | `RP_BASE` / `RP_STEP` | `600` / `1.12` | the level curve; the website reads these too |
 | `RP_PENALTY_STEP` | `1.14` | how fast penalties grow with level |
+| `RP_POST_CAP_STEP` | `1.25` | how much more each level past 60 costs than the last; `linear` for the original's day a level |
 | `MAP_X` / `MAP_Y` | `500` / `500` | the realm's size; the website reads these too |
 | `EVENTS_FILE` | | a classic `events.txt` whose lines join the realm's own |
 | `LOG_LEVEL` | `INFO` | `DEBUG` logs every IRC line |

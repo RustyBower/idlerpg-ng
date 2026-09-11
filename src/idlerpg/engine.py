@@ -322,7 +322,7 @@ class Engine:
             remaining = player.next_ttl - elapsed_seconds
             while remaining <= 0:
                 player.level += 1
-                remaining += int(ttl(player.level, self.curve) * events.swiftness(player))
+                remaining += int(events.level_cost(player, player.level, self.curve))
                 announcements.append(Outcome(
                     f"{player.name} the {player.character_class or 'wanderer'} "
                     f"reaches level {player.level}! "
