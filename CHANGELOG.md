@@ -3,7 +3,7 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.16.1 - unreleased
+## 0.16.1 - 2026-09-11
 
 - **The map has a heartland.** Characters drift through the middle 80% of the
   map and wander back in from the wilds at its rim, instead of vanishing off
