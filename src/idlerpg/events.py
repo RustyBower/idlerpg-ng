@@ -39,6 +39,33 @@ SLOTS = {
 # likely to land one, the evil less.
 CRITICAL_FACTOR = {"good": 50, "evil": 20, "neutral": 35}
 
+# Alignment tuning, kept together so it can be adjusted as the realm is
+# watched. Good and evil decide critical strikes and the goodness and evilness
+# events; the law-chaos axis decides how hard luck lands.
+LAWFUL_PENALTY = 0.9                                    # 10% smaller penalties
+LUCK = {"lawful": 0.5, "neutral": 1.0, "chaotic": 1.5}  # calamities, godsends
+QUEST_WEIGHT = {"lawful": 1.25, "neutral": 1.0, "chaotic": 1.0}
+CHAOS_INTERVAL = 6 * DAY      # an odd event, per chaotic player online
+BALANCE_INTERVAL = 20 * DAY   # a nudge to the middle, per true-neutral player
+BALANCE_SHIFT = 0.05
+
+
+def ethos(player) -> str:
+    """A player's place on the law-chaos axis, as a word."""
+    value = getattr(player, "ethos", None)
+    return value.value if value is not None else "neutral"
+
+
+def scale_penalty(player, seconds: int) -> int:
+    return int(seconds * LAWFUL_PENALTY) if ethos(player) == "lawful" else seconds
+
+
+def will_fight(challenger, rng: random.Random) -> bool:
+    """Below level 25 most challenges are declined, as in the original -
+    unless the challenger is chaotic, and will fight anyone."""
+    return (challenger.level >= 25 or ethos(challenger) == "chaotic"
+            or rng.randrange(4) < 1)
+
 
 @dataclass
 class Outcome:
@@ -93,16 +120,14 @@ def hand_of_god(player, rng: random.Random) -> Outcome:
     if blessed:
         player.next_ttl = max(1, player.next_ttl - amount)
         text = (
-            f"Verily I say unto thee, the Heavens have burst forth, and the "
-            f"blessed hand of God carried {player.name} {duration(amount)} toward"
-            f"level {player.level + 1}."
+            f"The clouds part and a great hand reaches down, carrying "
+            f"{player.name} {duration(amount)} toward level {player.level + 1}."
         )
     else:
         player.next_ttl += amount
         text = (
-            f"Thereupon He stretched out His little finger among them and "
-            f"consumed {player.name} with fire, slowing the heathen {duration(amount)}"
-            f"from level {player.level + 1}."
+            f"A single godly finger descends and flicks {player.name} into a "
+            f"hedge, {duration(amount)} further from level {player.level + 1}."
         )
     return Outcome(text, kind="hog")
 
@@ -119,7 +144,8 @@ def calamity(player, rng: random.Random) -> Outcome:
                 f"damaged! It drops from level {before} to {item.value}.",
                 kind="calamity",
             )
-    amount = int(int(5 + rng.randrange(8)) / 100 * player.next_ttl)
+    amount = int(int(5 + rng.randrange(8)) / 100 * player.next_ttl
+                 * LUCK[ethos(player)])
     player.next_ttl += amount
     return Outcome(
         f"{player.name} {LORE.calamity(rng)}. That costs them {duration(amount)} "
@@ -141,7 +167,8 @@ def godsend(player, rng: random.Random) -> Outcome:
                     f"blessed! It rises from level {before} to {item.value}.",
                     kind="godsend",
                 )
-    amount = int(int(5 + rng.randrange(8)) / 100 * player.next_ttl)
+    amount = int(int(5 + rng.randrange(8)) / 100 * player.next_ttl
+                 * LUCK[ethos(player)])
     player.next_ttl = max(1, player.next_ttl - amount)
     return Outcome(
         f"{player.name} {LORE.godsend(rng)}! That brings them {duration(amount)} "
@@ -167,9 +194,9 @@ def battle(challenger, opponent, rng: random.Random) -> list[Outcome]:
         gain = int((percent / 100) * challenger.next_ttl)
         challenger.next_ttl = max(1, challenger.next_ttl - gain)
         out.append(Outcome(
-            f"{challenger.name} [{my_roll}/{my_sum}] has challenged "
-            f"{opponent.name} [{opp_roll}/{opp_sum}] in combat and won! "
-            f"{duration(gain)} is removed from {challenger.name}'s clock.",
+            f"{challenger.name} [{my_roll}/{my_sum}] fought "
+            f"{opponent.name} [{opp_roll}/{opp_sum}] and won! "
+            f"{duration(gain)} is taken off {challenger.name}'s clock.",
             kind="battle",
         ))
         factor = CRITICAL_FACTOR.get(challenger.alignment.value, 35)
@@ -177,8 +204,8 @@ def battle(challenger, opponent, rng: random.Random) -> list[Outcome]:
             hit = int(((5 + rng.randrange(20)) / 100) * opponent.next_ttl)
             opponent.next_ttl += hit
             out.append(Outcome(
-                f"{challenger.name} has dealt {opponent.name} a Critical "
-                f"Strike! {duration(hit)} is added to {opponent.name}'s clock.",
+                f"{challenger.name} landed a crushing blow on {opponent.name}! "
+                f"{duration(hit)} is added to {opponent.name}'s clock.",
                 kind="battle",
             ))
         elif rng.randrange(25) < 1 and challenger.level > 19:
@@ -188,8 +215,8 @@ def battle(challenger, opponent, rng: random.Random) -> list[Outcome]:
         gain = int((percent / 100) * challenger.next_ttl)
         challenger.next_ttl += gain
         out.append(Outcome(
-            f"{challenger.name} [{my_roll}/{my_sum}] has challenged "
-            f"{opponent.name} [{opp_roll}/{opp_sum}] in combat and lost! "
+            f"{challenger.name} [{my_roll}/{my_sum}] fought "
+            f"{opponent.name} [{opp_roll}/{opp_sum}] and lost! "
             f"{duration(gain)} is added to {challenger.name}'s clock.",
             kind="battle",
         ))
@@ -206,9 +233,9 @@ def _swap_item(winner, loser, rng: random.Random) -> list[Outcome]:
     mine.value, theirs.value = theirs.value, mine.value
     mine.tag, theirs.tag = theirs.tag, mine.tag
     return [Outcome(
-        f"In the fierce battle, {loser.name} dropped their level "
-        f"{mine.value} {SLOTS[slot]}! {winner.name} picks it up, tossing "
-        f"their old level {theirs.value} {SLOTS[slot]} to {loser.name}.",
+        f"In the scuffle {loser.name} lost hold of their level {mine.value} "
+        f"{SLOTS[slot]}. {winner.name} pockets it and leaves their own level "
+        f"{theirs.value} {SLOTS[slot]} behind.",
         kind="battle",
     )]
 
@@ -284,14 +311,14 @@ def team_battle(online: list, rng: random.Random, map_x: int,
     if roll_a >= roll_b:
         for p in team_a:
             p.next_ttl = max(1, p.next_ttl - gain)
-        verdict = f"won! {duration(gain)} is removed from their clocks"
+        verdict = f"won! {duration(gain)} is taken off their clocks"
     else:
         for p in team_a:
             p.next_ttl += gain
         verdict = f"lost! {duration(gain)} is added to their clocks"
     return [Outcome(
-        f"{names_a} [{roll_a}/{sum_a}] have team battled {names_b} "
-        f"[{roll_b}/{sum_b}] at [{x},{y}] and {verdict}.",
+        f"{names_a} [{roll_a}/{sum_a}] met {names_b} [{roll_b}/{sum_b}] "
+        f"in open battle at [{x},{y}] and {verdict}.",
         kind="battle",
     )]
 
@@ -369,9 +396,8 @@ def goodness(online: list, rng: random.Random) -> list[Outcome]:
     for p in (a, b):
         p.next_ttl = max(1, int(p.next_ttl * (1 - percent / 100)))
     return [Outcome(
-        f"{a.name} and {b.name} have not let the iniquities of evil men "
-        f"poison them. Together they have prayed to their god, and are "
-        f"rewarded {percent}% of their time toward the next level.",
+        f"{a.name} and {b.name} prayed together in quiet company, and their "
+        f"god answered: both are {percent}% closer to their next level.",
         kind="goodness",
     )]
 
@@ -394,15 +420,42 @@ def evilness(online: list, rng: random.Random) -> list[Outcome]:
                 mine.value, theirs.value = theirs.value, mine.value
                 mine.tag, theirs.tag = theirs.tag, mine.tag
                 return [Outcome(
-                    f"{me.name} stole {target.name}'s level {mine.value} "
-                    f"{SLOTS[slot]} while they were sleeping!",
+                    f"{me.name} crept into {target.name}'s camp by night and "
+                    f"made off with their level {mine.value} {SLOTS[slot]}.",
                     kind="evilness",
                 )]
     percent = 1 + rng.randrange(5)
     added = int(me.next_ttl * (percent / 100))
     me.next_ttl += added
     return [Outcome(
-        f"{me.name} is forsaken by their evil god. {duration(added)} is added to"
-        f"their clock.",
+        f"{me.name}'s dark patron is displeased, and takes {duration(added)} "
+        f"of their time as tribute.",
         kind="evilness",
     )]
+
+
+def chaos(player, rng: random.Random) -> Outcome:
+    """Something odd happens to a chaotic player: luck, either way."""
+    outcome = godsend(player, rng) if rng.randrange(2) else calamity(player, rng)
+    return Outcome(f"Chaos stirs. {outcome.message}", kind="chaos")
+
+
+def balance(player, online: list, rng: random.Random) -> list[Outcome]:
+    """The realm tugs a truly neutral player toward its middle level: time
+    off if they are behind it, time on if they have pulled ahead."""
+    levels = sorted(p.level for p in online)
+    middle = levels[len(levels) // 2]
+    shift = int(player.next_ttl * BALANCE_SHIFT)
+    if player.level < middle:
+        player.next_ttl = max(1, player.next_ttl - shift)
+        text = (f"The scales of the realm tip toward {player.name}, who keeps "
+                f"to the middle way: {duration(shift)} closer to level "
+                f"{player.level + 1}.")
+    elif player.level > middle:
+        player.next_ttl += shift
+        text = (f"The scales of the realm tip against {player.name}, who has "
+                f"pulled ahead of it: {duration(shift)} further from level "
+                f"{player.level + 1}.")
+    else:
+        return []
+    return [Outcome(text, kind="balance")]

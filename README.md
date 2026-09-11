@@ -19,7 +19,7 @@ Running at [idlerpg.129irc.com](https://idlerpg.129irc.com/) on
     /msg idlerpg REGISTER <name> <password> <class>
     /msg idlerpg LOGIN <name> <password>
     /msg idlerpg WHOAMI
-    /msg idlerpg ALIGN <good|neutral|evil>
+    /msg idlerpg ALIGN <lawful|neutral|chaotic> <good|neutral|evil>
     /msg idlerpg NEWPASS <current> <new>
     /msg idlerpg REMOVEME <password>        # deletes your character for good
     /msg idlerpg MERGE <name> <password>   # fold another character into this one
@@ -32,6 +32,10 @@ long as you are connected from the same `nick!user@host` - which a bouncer
 keeps stable. Quitting, parting, being kicked and `LOGOUT` end a login; a
 netsplit does not, and costs nothing.
 
+You earn only while you are in `#idlerpg`. A `LOGIN` from outside it logs you
+in, and you start earning when you join. One nick holds one login: logging in
+as another character ends the first.
+
 **Discord** — send the bot a **direct message**. Registering or logging in
 gives you the game role, which is what lets you see the game channel and what
 keeps your character idling. Reacting to the bot's pinned note gets you the
@@ -40,7 +44,7 @@ role too, and a DM explaining how to register if you have no character yet:
     !register <name> <password> <class>
     !login <name> <password>
     !whoami
-    !align <good|neutral|evil>
+    !align <lawful|neutral|chaotic> <good|neutral|evil>
     !newpass <current> <new>
     !removeme <password>
     !merge <name> <password>
@@ -53,6 +57,42 @@ password. You are then one character on both, still earning exactly one second
 per second: being in two places is neither a penalty nor a shortcut. If you
 already registered on each, log in as the one to keep and `MERGE` the other
 into it; it keeps the better level, timer and item per slot, never the sum.
+
+## How the game plays
+
+**Penalties.** Talking, changing nick, parting, quitting, being kicked and
+logging out all add time, more at higher levels. On IRC the bot tells you what
+each one cost; on Discord a message that cost time gets an ⏳. Leaving one
+platform while you are still on the other costs nothing.
+
+**Quests.** Once four players online are at level 40 or above, the gods may
+choose them. A vigil lasts 12 to 24 hours. A journey walks the party, a step
+every 30 seconds, to two named places in turn, and is abandoned without blame
+after a day. Finishing takes a quarter off each quester's remaining time. If a
+quester talks or leaves, the quest fails: each quester is set back fifteen
+penalty steps, and no quest is offered for 12 hours.
+
+**War.** Now and then the map's quadrants fight. A quadrant that beats both its
+neighbours moves its players 15% closer to their next level; one that loses to
+both is set back 15%. The original halves and doubles clocks, which in a realm
+this size outweighs days of idling.
+
+**Alignment** has two parts, as in the tabletop's nine: lawful, neutral or
+chaotic, then good, neutral or evil. Good lands more critical hits and now and
+then prays with another good player for time off; evil lands fewer, and now
+and then steals a better item from a good player or pays its dark patron.
+Lawful takes 10% smaller penalties, feels calamities and godsends half as hard
+and is likelier to be chosen for quests; chaotic feels them half as hard again,
+will fight anyone, and attracts the odd random event. True neutral is tugged
+now and then toward the realm's middle level. The numbers sit together at the
+top of `events.py`, to be tuned as the realm is watched.
+
+**Events** are composed from the realm's own lore: thirty named places on the
+map, a cast of creatures and helpers, and small grammars that make tens of
+thousands of distinct calamities, godsends and quests, mixed with hand-written
+ones. The classic IdleRPG `events.txt` is not bundled - its licence forbids
+redistributing it - but `EVENTS_FILE` can point at your own copy to mix its
+lines in. Times read as durations throughout, like `3d 4h`.
 
 ## The two decisions that shape this
 
@@ -72,14 +112,14 @@ paying twice.
 
 ## What is implemented
 
-Levelling, items including uniques, single and team battles, hand of god,
-calamities, godsends, war between the map's quadrants, the good and evil
-alignment events, quests in both timed and journey forms, the world map, all
-seven penalty types, channel topics, and a website with standings, a map, quest
-status, per-player pages and an event feed.
+Levelling, items including uniques, single and team battles, the Hand of God,
+calamities, godsends, war between the map's quadrants, the nine alignments and
+their events, quests as vigils and journeys, the world map, all seven penalty
+types, logins that survive restarts, channel topics, and a website with
+standings, a map, quest status, per-player pages and an event feed.
 
-Not implemented: the original's admin commands (`PAUSE`, `DELOLD`, `JUMP` and
-friends) and items decaying where they are dropped on the map.
+Not yet: the admin commands (next), fights when players meet on the map, the
+original's eight named uniques, and items left lying on the map.
 
 ## Tuning
 
@@ -110,15 +150,23 @@ length does not change the game.
 | `IRC_HOST` / `IRC_PORT` | `irc.129irc.com` / `6697` | |
 | `IRC_TLS` / `IRC_TLS_VERIFY` | `true` / `true` | |
 | `IRC_NICK` / `IRC_CHANNEL` | `idlerpg` / `#idlerpg` | |
-| `IRC_NICKSERV_PASSWORD` | | identifies on connect |
+| `IRC_USER` / `IRC_REALNAME` | `idlerpg` / `IdleRPG` | see the note on realnames below |
+| `IRC_RECONNECT_SECONDS` | `30` | |
+| `IRC_NICKSERV_PASSWORD` | | identifies on connect, and ghosts a stale connection holding the nick |
 | `IRC_NICKSERV_EMAIL` | | registers the nick if unregistered |
 | `DISCORD_TOKEN` | | omit to run IRC only |
 | `DISCORD_CHANNEL_ID` | | the game channel |
 | `DISCORD_OPTIN_ROLE_ID` | | the game role; registering grants it |
 | `DISCORD_OPTIN_CHANNEL_ID` | | where the bot pins how to join - pick one everyone can see |
+| `DISCORD_OPTIN_EMOJI` | 🎲 | the reaction on that note |
 | `TICK_SECONDS` | `5` | |
 | `TOPIC_SECONDS` | `36000` | Discord throttles channel edits hard |
-| `RP_BASE` / `RP_STEP` | `600` / `1.12` | |
+| `SITE_URL` | `https://idlerpg.129irc.com/` | leads the channel topic |
+| `RP_BASE` / `RP_STEP` | `600` / `1.12` | the level curve; the website reads these too |
+| `RP_PENALTY_STEP` | `1.14` | how fast penalties grow with level |
+| `MAP_X` / `MAP_Y` | `500` / `500` | the realm's size; the website reads these too |
+| `EVENTS_FILE` | | a classic `events.txt` whose lines join the realm's own |
+| `LOG_LEVEL` | `INFO` | `DEBUG` logs every IRC line |
 
 The bot needs a **descriptive realname** on networks running UnrealIRCd's
 `antirandom` module, which kills clients whose nick, ident and realname look

@@ -91,7 +91,7 @@ def load_players():
                     "nick": nick, "online": any(plats.values()),
                     "x": p.x or 0, "y": p.y or 0,
                     "created": p.created, "lastlogin": p.last_login,
-                    "alignment": str(p.alignment).split(".")[-1].capitalize(),
+                    "alignment": p.alignment_name.title(),
                     "admin": bool(p.is_admin),
                     "platforms": plats,
                     "items": {i.slot: i.value for i in p.items},
@@ -650,7 +650,7 @@ def page_game():
   <tr><th>Register</th><td><code>/msg {E(BOT_NICK)} REGISTER &lt;name&gt; &lt;password&gt; &lt;class&gt;</code></td></tr>
   <tr><th>Log in later</th><td><code>/msg {E(BOT_NICK)} LOGIN &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Check yourself</th><td><code>/msg {E(BOT_NICK)} WHOAMI</code></td></tr>
-  <tr><th>Choose alignment</th><td><code>/msg {E(BOT_NICK)} ALIGN good|neutral|evil</code></td></tr>
+  <tr><th>Choose alignment</th><td><code>/msg {E(BOT_NICK)} ALIGN lawful good</code>, or any of the nine</td></tr>
   <tr><th>Change password</th><td><code>/msg {E(BOT_NICK)} NEWPASS &lt;current&gt; &lt;new&gt;</code></td></tr>
   <tr><th>Delete your character</th><td><code>/msg {E(BOT_NICK)} REMOVEME &lt;password&gt;</code></td></tr>
   <tr><th>Merge a second character</th><td><code>/msg {E(BOT_NICK)} MERGE &lt;name&gt; &lt;password&gt;</code></td></tr>
@@ -668,7 +668,7 @@ that stable.</p>
   <tr><th>Register</th><td><code>!register &lt;name&gt; &lt;password&gt; &lt;class&gt;</code></td></tr>
   <tr><th>Log in later</th><td><code>!login &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Check yourself</th><td><code>!whoami</code></td></tr>
-  <tr><th>Choose alignment</th><td><code>!align good|neutral|evil</code></td></tr>
+  <tr><th>Choose alignment</th><td><code>!align lawful good</code>, or any of the nine</td></tr>
   <tr><th>Change password</th><td><code>!newpass &lt;current&gt; &lt;new&gt;</code></td></tr>
   <tr><th>Delete your character</th><td><code>!removeme &lt;password&gt;</code></td></tr>
   <tr><th>Merge a second character</th><td><code>!merge &lt;name&gt; &lt;password&gt;</code></td></tr>
@@ -718,13 +718,17 @@ instead of compounding forever.</p>
 <p class="muted">You find items in ten slots - amulet, charm, helm, boots, gloves,
 ring, leggings, shield, tunic and weapon. Their total is your strength in battles,
 which the bot starts on its own.</p>
-<p class="muted">Pick an alignment with <code>ALIGN good|neutral|evil</code> on IRC or
-<code>!align</code> on Discord; switching is free. <span class="good">Good</span>
-players land critical hits in battle more often, and now and then two of them pray
-together and both get 5-12% off their time to the next level.
-<span class="evil">Evil</span> ones land fewer, and now and then either steal a better
-item from a good player or are forsaken by their god and have 1-5% added to their
-clock. Neutral sits in between and is left out of both.</p>
+<p class="muted">Alignment has two parts, as in the tabletop's nine: lawful, neutral or
+chaotic, then good, neutral or evil. Pick with <code>ALIGN lawful good</code> - or
+<code>ALIGN chaotic</code>, <code>ALIGN evil</code>, <code>ALIGN true neutral</code> -
+on IRC, or <code>!align</code> on Discord; switching is free.
+<span class="good">Good</span> players land critical hits more often, and now and then
+two of them pray together for 5-12% off their time. <span class="evil">Evil</span> ones
+land fewer, and now and then steal a better item from a good player or pay their dark
+patron 1-5%. Lawful players take 10% smaller penalties, feel calamities and godsends
+half as hard and are likelier to be chosen for quests; chaotic ones feel them half as
+hard again, will fight anyone and attract the odd random event. The truly neutral are
+tugged now and then toward the realm's middle level.</p>
 <p class="muted">Quests choose four players at level 40 or above. Some are vigils of 12 to
 24 hours; others walk the party to two waypoints across the {MAP_X}&times;{MAP_Y}
 realm, a step every half-minute. Finish one and each quester loses a quarter of their

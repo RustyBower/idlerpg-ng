@@ -42,7 +42,8 @@ HELP = (
     "`!register <name> <password> <class>`, `!login <name> <password>` "
     "(an IRC character works too, making it one character on both), "
     "`!merge <name> <password>` (fold another character of yours into this "
-    "one), `!align <good|neutral|evil>`, `!newpass <current> <new>`, "
+    "one), `!align <lawful|neutral|chaotic> <good|neutral|evil>`, "
+    "`!newpass <current> <new>`, "
     "`!removeme <password>`, `!whoami`. Anything with a password goes in a DM."
 )
 
@@ -558,17 +559,14 @@ class DiscordAdapter(discord.Client):
                 await reply("You have no character here yet - `!register` first.")
                 return
             if not args:
-                await reply(
-                    f"`!align <good|neutral|evil>` - you are "
-                    f"{player.alignment.value}. {ALIGNMENT_HELP}"
-                )
+                await reply(f"You are {player.alignment_name}. {ALIGNMENT_HELP}")
                 return
             try:
-                alignment = self.engine.set_alignment(player, args[0])
+                name = self.engine.set_alignment(player, " ".join(args))
             except RegistrationError as exc:
                 await reply(f"Cannot align: {exc}.")
                 return
-            await reply(f"You are now {alignment.value}.")
+            await reply(f"You are now {name}.")
         elif verb == "whoami":
             player = self.engine.player_for(Platform.DISCORD, external)
             if player is None:
@@ -577,7 +575,7 @@ class DiscordAdapter(discord.Client):
             await reply(
                 f"{player.name}, level {player.level} {player.character_class}, "
                 f"next level in {duration(player.next_ttl)}, "
-                f"alignment {player.alignment.value}."
+                f"alignment {player.alignment_name}."
             )
         else:
             await reply(HELP)

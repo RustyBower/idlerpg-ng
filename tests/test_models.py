@@ -110,6 +110,7 @@ class TestUpgrade:
         Base.metadata.create_all(engine)
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE platform_identity DROP COLUMN login_mask"))
+            conn.execute(text("ALTER TABLE player DROP COLUMN ethos"))
         return engine
 
     def test_adds_a_missing_column(self, tmp_path):
@@ -119,6 +120,7 @@ class TestUpgrade:
         upgrade(engine)
         columns = {c["name"] for c in inspect(engine).get_columns("platform_identity")}
         assert "login_mask" in columns
+        assert "ethos" in {c["name"] for c in inspect(engine).get_columns("player")}
         with Session(engine) as s:
             make_player(s, irc=Presence.ACTIVE)  # the models can use it
 

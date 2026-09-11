@@ -305,7 +305,7 @@ class TestAlignCommand:
         member = Member(guild, role=True)
         await command(adapter, member, "!register rusty pw Sysadmin")
         m = await command(adapter, member, "!align good", channel=Channel())
-        assert "You are now good" in m.replies[0]
+        assert "You are now neutral good" in m.replies[0]
         assert not m.deleted  # no password, so no need to hide it
         assert adapter.engine.find_player("rusty").alignment is Alignment.GOOD
 
@@ -314,7 +314,7 @@ class TestAlignCommand:
         member = Member(guild, role=True)
         await command(adapter, member, "!register rusty pw Sysadmin")
         m = await command(adapter, member, "!align")
-        assert "you are neutral" in m.replies[0]
+        assert "You are true neutral" in m.replies[0]
         assert "critical hits" in m.replies[0]
 
     @pytest.mark.asyncio

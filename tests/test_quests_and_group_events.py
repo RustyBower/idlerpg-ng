@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import re
 from datetime import timedelta
 
 import pytest
@@ -50,7 +51,7 @@ class TestTeamBattle:
         six = make(engine, 6)
         out = events.team_battle(six, engine.rng, 500, 500)
         assert len(out) == 1
-        assert "team battled" in out[0].message
+        assert "open battle" in out[0].message
         assert ("won!" in out[0].message) or ("lost!" in out[0].message)
 
     def test_stake_is_a_fifth_of_the_smallest_winner_clock(self, engine):
@@ -125,7 +126,7 @@ class TestAlignment:
         engine.session.commit()
         out = events.evilness(evil + good, engine.rng)
         assert out
-        assert "stole" in out[0].message or evil[0].next_ttl > 10000
+        assert "made off with" in out[0].message or evil[0].next_ttl > 10000
 
 
 class TestQuests:
@@ -152,7 +153,7 @@ class TestQuests:
             p.next_ttl = 1000
         engine.session.commit()
         out = quests.advance(engine.session, quest, engine.rng)
-        assert out and "completing their quest" in out[0].message
+        assert out and "the quest is complete" in out[0].message
         assert all(p.next_ttl == 750 for p in party)   # 25% removed
         assert quests.active_quest(engine.session) is None
 
@@ -176,7 +177,7 @@ class TestQuests:
             p.x, p.y = 20, 20
         engine.session.commit()
         out = quests.advance(engine.session, quest, engine.rng)
-        assert out and "completing their quest" in out[0].message
+        assert out and "the quest is complete" in out[0].message
 
     def test_a_quester_speaking_sets_the_party_back_and_nobody_else(self, engine):
         from idlerpg.models import PenaltyRecord
@@ -197,7 +198,7 @@ class TestQuests:
         assert bystander.next_ttl == 1000                  # not their quest
         records = engine.session.query(PenaltyRecord).filter_by(kind="quest").all()
         assert len(records) == 4
-        assert any("wrath of the gods upon the quest" in o.message for o in engine._pending)
+        assert any("broke the party's silence" in o.message for o in engine._pending)
 
     def test_no_quest_for_twelve_hours_after_a_failure(self, engine):
         from idlerpg.models import Setting
@@ -339,3 +340,110 @@ class TestReadableMessages:
             engine.session.delete(quest)
             engine.session.commit()
         pytest.fail("no journey in 20 seeds")
+
+
+class TestNineAlignments:
+    @pytest.mark.parametrize("text,name", [
+        ("lawful good", "lawful good"), ("chaotic evil", "chaotic evil"),
+        ("true neutral", "true neutral"), ("chaotic", "chaotic neutral"),
+        ("evil", "neutral evil"), ("lawful neutral", "lawful neutral"),
+        ("neutral", "true neutral"), ("Chaotic Good", "chaotic good"),
+    ])
+    def test_every_way_of_saying_it(self, engine, text, name):
+        p = make(engine, 1)[0]
+        assert engine.set_alignment(p, text) == name
+        assert p.alignment_name == name
+
+    def test_one_word_changes_one_part(self, engine):
+        p = make(engine, 1)[0]
+        engine.set_alignment(p, "lawful good")
+        assert engine.set_alignment(p, "chaotic") == "chaotic good"
+        assert engine.set_alignment(p, "evil") == "chaotic evil"
+
+    def test_law_comes_first(self, engine):
+        from idlerpg.engine import RegistrationError
+        p = make(engine, 1)[0]
+        with pytest.raises(RegistrationError, match="law comes first"):
+            engine.set_alignment(p, "good lawful")
+
+    def test_the_lawful_take_smaller_penalties(self, engine):
+        lawful, plain = make(engine, 2, level=20)
+        engine.set_alignment(lawful, "lawful")
+        assert engine.penalise(lawful, Penalty.PART) == int(
+            engine.penalise(plain, Penalty.PART) * 0.9)
+
+    def test_luck_lands_softer_on_the_lawful_and_harder_on_the_chaotic(self, engine):
+        totals = {}
+        for ethos in ("lawful", "true neutral", "chaotic"):
+            p = make(engine, 1, level=10)[0]
+            engine.set_alignment(p, ethos)
+            rng, total = random.Random(5), 0
+            for _ in range(200):
+                p.next_ttl = 100000
+                events.calamity(p, rng)
+                total += p.next_ttl - 100000
+            totals[ethos] = total
+        assert totals["lawful"] < totals["true neutral"] < totals["chaotic"]
+
+    def test_the_chaotic_will_fight_at_any_level(self, engine):
+        p = make(engine, 1, level=3)[0]
+        engine.set_alignment(p, "chaotic")
+        assert all(events.will_fight(p, engine.rng) for _ in range(50))
+
+    def test_the_lawful_are_likelier_to_be_chosen_for_quests(self, engine):
+        players = make(engine, 8, level=45)
+        for p in players[:4]:
+            engine.set_alignment(p, "lawful")
+        lawful = {p.id for p in players[:4]}
+        rng, picks = random.Random(1), 0
+        for _ in range(300):
+            picks += sum(p.id in lawful for p in quests.choose_party(players, rng))
+        assert picks / (300 * 4) > 0.52           # 0.5 if unweighted
+
+    def test_chaos_is_luck_either_way(self, engine):
+        p = make(engine, 1, level=10)[0]
+        out = events.chaos(p, engine.rng)
+        assert out.kind == "chaos" and out.message.startswith("Chaos stirs.")
+
+    def test_balance_tugs_toward_the_middle(self, engine):
+        low, mid, high = make(engine, 3)
+        low.level, mid.level, high.level = 5, 10, 20
+        low.next_ttl = high.next_ttl = 1000
+        realm = [low, mid, high]
+        events.balance(low, realm, engine.rng)
+        events.balance(high, realm, engine.rng)
+        assert (low.next_ttl, high.next_ttl) == (950, 1050)
+        assert events.balance(mid, realm, engine.rng) == []
+
+
+class TestNoWordsRunTogether:
+    """0.13.0 shipped "towardlevel" and "3mfrom": swapping raw seconds for
+    durations lost the space after them. Every kind of message is rendered
+    and checked for words glued together."""
+
+    GLUED = re.compile(r"\d[smhd][a-z]|(toward|from|to)(level|their)")
+
+    def test_every_kind_of_message(self, engine):
+        players = make(engine, 8, level=30)
+        for i, p in enumerate(players):
+            p.x, p.y = (50 if i % 2 else 450), (50 if i < 4 else 450)
+            p.alignment = Alignment.GOOD if i % 2 else Alignment.EVIL
+        engine.session.commit()
+        rng, msgs = random.Random(3), []
+        for _ in range(60):
+            for p in players:
+                p.next_ttl = 100000
+            a, b = rng.sample(players, 2)
+            msgs.append(events.hand_of_god(a, rng).message)
+            msgs.append(events.calamity(a, rng).message)
+            msgs.append(events.godsend(a, rng).message)
+            msgs.append(events.chaos(a, rng).message)
+            for group in (events.battle(a, b, rng),
+                          events.team_battle(players, rng, 500, 500),
+                          events.goodness(players, rng),
+                          events.evilness(players, rng),
+                          events.war(players, rng, 500, 500),
+                          events.balance(a, players[:3] + [b], rng)):
+                msgs.extend(o.message for o in group)
+        glued = [m for m in msgs if self.GLUED.search(m)]
+        assert not glued, glued[:3]

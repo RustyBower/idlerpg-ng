@@ -21,6 +21,7 @@ from .text import check_class, check_name, duration, safe
 
 from .models import (
     Alignment,
+    Ethos,
     Setting,
     EventLog,
     Item,
@@ -80,10 +81,14 @@ class RegistrationError(Exception):
 # What each alignment does, for the help text on both platforms. Kept next to
 # set_alignment rather than in an adapter so the two cannot drift apart.
 ALIGNMENT_HELP = (
-    "good: more critical hits, and now and then two good players pray "
-    "together for time off; evil: fewer critical hits, and now and then you "
-    "steal a better item from a good player - or your god adds to your clock; "
-    "neutral: in between, and neither event."
+    "Two parts, law first: lawful, neutral or chaotic, then good, neutral or "
+    "evil - or one word to change one part. Good: more critical hits, and now "
+    "and then good players pray together for time off. Evil: fewer, and now "
+    "and then steal a better item from a good player or pay your dark patron. "
+    "Lawful: 10% smaller penalties, calamities and godsends half as hard, "
+    "likelier to be chosen for quests. Chaotic: calamities and godsends half "
+    "as hard again, will fight anyone, and the odd random event. True neutral: "
+    "tugged now and then toward the realm's middle level."
 )
 
 
@@ -297,8 +302,8 @@ class Engine:
                 player.level += 1
                 remaining += int(ttl(player.level, self.curve))
                 announcements.append(Outcome(
-                    f"{player.name}, the {player.character_class or 'nameless'}, "
-                    f"has attained level {player.level}! "
+                    f"{player.name} the {player.character_class or 'wanderer'} "
+                    f"reaches level {player.level}! "
                     f"Next level in {duration(remaining)}.",
                     kind="levelup",
                 ))
@@ -354,12 +359,22 @@ class Engine:
         if events.should_fire(events.WAR_INTERVAL, elapsed, 1, self.rng):
             out.extend(events.war(online, self.rng, events_map_x(), events_map_y()))
 
+        # The law-chaos axis has events of its own: chaos finds the chaotic,
+        # and the realm's balance tugs at the truly neutral.
+        chaotic = [p for p in online if p.ethos is Ethos.CHAOTIC]
+        if events.should_fire(events.CHAOS_INTERVAL, elapsed, len(chaotic), self.rng):
+            out.append(events.chaos(self.rng.choice(chaotic), self.rng))
+        balanced = [p for p in online
+                    if p.ethos is Ethos.NEUTRAL and p.alignment is Alignment.NEUTRAL]
+        if events.should_fire(events.BALANCE_INTERVAL, elapsed, len(balanced), self.rng):
+            out.extend(events.balance(self.rng.choice(balanced), online, self.rng))
+
         # Battles are checked on the hour in the original rather than rolled
         # continuously, so scale a once-an-hour chance by the tick length.
         if len(online) > 1 and self.rng.random() < elapsed / BATTLE_CHECK_SECONDS:
             challenger = self.rng.choice(online)
             # Below level 25 most challenges are declined, as in bot.pl.
-            if challenger.level >= 25 or self.rng.randrange(4) < 1:
+            if events.will_fight(challenger, self.rng):
                 opponent = self.rng.choice([p for p in online if p is not challenger])
                 out.extend(events.battle(challenger, opponent, self.rng))
         return out
@@ -406,6 +421,7 @@ class Engine:
         seconds = penalty_seconds(
             kind, player.level, self.curve, message_length=message_length
         )
+        seconds = events.scale_penalty(player, seconds)
         player.next_ttl += seconds
         if kind is not Penalty.QUEST:
             # A quester who talks, parts or quits fails it for the party.
@@ -484,25 +500,38 @@ class Engine:
 
     # -------------------------------------------------------------- alignment
 
-    def set_alignment(self, player: Player, choice: str) -> Alignment:
-        """Change a player's alignment, as the original ALIGN did.
+    def set_alignment(self, player: Player, choice: str) -> str:
+        """Change either part of a player's alignment; returns its new name.
 
-        Free, and announced to the realm - on every platform, so queued rather
-        than returned. Choosing the alignment you already have announces
+        "lawful good" sets both parts, law first. One word changes one part:
+        "chaotic" the law, "evil" the morals - and "neutral" alone the morals,
+        as ALIGN always did. "true neutral" sets both to neutral. Free, and
+        announced to the realm; choosing what you already are announces
         nothing.
         """
-        alignment = {a.value: a for a in Alignment}.get(choice.strip().lower())
-        if alignment is None:
-            raise RegistrationError("choose good, neutral or evil")
-        if alignment is player.alignment:
-            return alignment
-        player.alignment = alignment
+        morals = {a.value: a for a in Alignment}
+        ethics = {e.value: e for e in Ethos}
+        alignment, ethos = player.alignment, player.ethos or Ethos.NEUTRAL
+        words = choice.lower().split()
+        if words == ["true", "neutral"]:
+            alignment, ethos = Alignment.NEUTRAL, Ethos.NEUTRAL
+        elif len(words) == 1 and words[0] in morals:
+            alignment = morals[words[0]]
+        elif len(words) == 1 and words[0] in ethics:
+            ethos = ethics[words[0]]
+        elif len(words) == 2 and words[0] in ethics and words[1] in morals:
+            ethos, alignment = ethics[words[0]], morals[words[1]]
+        else:
+            raise RegistrationError(
+                "try lawful good, chaotic, evil or true neutral - law comes first")
+        if (alignment, ethos) == (player.alignment, player.ethos):
+            return player.alignment_name
+        player.alignment, player.ethos = alignment, ethos
         self.session.commit()
         self._pending.append(Outcome(
-            f"{player.name} has changed alignment to: {alignment.value}.",
-            kind="alignment",
+            f"{player.name} is now {player.alignment_name}.", kind="alignment",
         ))
-        return alignment
+        return player.alignment_name
 
     # --------------------------------------------------------------- settings
 

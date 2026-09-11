@@ -62,7 +62,7 @@ class TestHandOfGod:
         blessed = 0
         for _ in range(400):
             p.next_ttl = 10000
-            if "blessed hand" in events.hand_of_god(p, engine.rng).message:
+            if "great hand" in events.hand_of_god(p, engine.rng).message:
                 blessed += 1
         assert 0.7 < blessed / 400 < 0.9  # bot.pl: 4 in 5
 

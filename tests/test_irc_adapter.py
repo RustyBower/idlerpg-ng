@@ -393,17 +393,17 @@ class TestAlignCommand:
         p = self._registered(adapter)
         feed(adapter, ":rusty!u@h PRIVMSG idlerpg :ALIGN evil")
         assert p.alignment is Alignment.EVIL
-        assert "You are now evil" in sent(adapter)
+        assert "You are now neutral evil" in sent(adapter)
 
     def test_without_an_argument_it_explains(self, adapter):
         self._registered(adapter)
         feed(adapter, ":rusty!u@h PRIVMSG idlerpg :ALIGN")
-        assert "you are neutral" in sent(adapter)
+        assert "You are true neutral" in sent(adapter)
         assert "critical hits" in sent(adapter)
 
     def test_nonsense_is_reported(self, adapter):
         self._registered(adapter)
-        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :ALIGN chaotic")
+        feed(adapter, ":rusty!u@h PRIVMSG idlerpg :ALIGN sideways")
         assert "Cannot align" in sent(adapter)
 
     def test_it_needs_a_login(self, adapter):

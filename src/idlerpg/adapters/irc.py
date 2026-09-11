@@ -68,7 +68,8 @@ def parse(line: str) -> Message | None:
 HELP = (
     "Stay connected and quiet to level up. "
     "REGISTER <name> <password> <class> | LOGIN <name> <password> (a Discord "
-    "character too) | LOGOUT | WHOAMI | ALIGN <good|neutral|evil> | "
+    "character too) | LOGOUT | WHOAMI | "
+    "ALIGN <lawful|neutral|chaotic> <good|neutral|evil> | "
     "NEWPASS <current> <new> | REMOVEME <password> | "
     "MERGE <name> <password> (fold another character of yours into this one)"
 )
@@ -315,21 +316,17 @@ class IRCAdapter:
         elif verb == "ALIGN":
             player = self.character_for_nick(nick)
             if player is None:
-                self.notice(nick, "Log in first, then ALIGN <good|neutral|evil>.")
+                self.notice(nick, "Log in first, then ALIGN lawful good (or any of the nine).")
                 return
             if not args:
-                self.notice(
-                    nick,
-                    f"ALIGN <good|neutral|evil> - you are "
-                    f"{player.alignment.value}. {ALIGNMENT_HELP}",
-                )
+                self.notice(nick, f"You are {player.alignment_name}. {ALIGNMENT_HELP}")
                 return
             try:
-                alignment = self.engine.set_alignment(player, args[0])
+                name = self.engine.set_alignment(player, " ".join(args))
             except RegistrationError as exc:
                 self.notice(nick, f"Cannot align: {exc}.")
                 return
-            self.notice(nick, f"You are now {alignment.value}.")
+            self.notice(nick, f"You are now {name}.")
         elif verb == "MERGE":
             player = self.character_for_nick(nick)
             if player is None:
@@ -357,7 +354,7 @@ class IRCAdapter:
                 nick,
                 f"{player.name}, level {player.level} {player.character_class}, "
                 f"next level in {duration(player.next_ttl)}, "
-                f"alignment {player.alignment.value}.",
+                f"alignment {player.alignment_name}.",
             )
         else:
             self.notice(nick, HELP)

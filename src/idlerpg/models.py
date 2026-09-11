@@ -62,6 +62,15 @@ class Alignment(str, enum.Enum):
     EVIL = "evil"
 
 
+class Ethos(str, enum.Enum):
+    """The law-chaos axis, beside Alignment's good-evil one. Together they
+    make the nine alignments; neutral on both is true neutral."""
+
+    LAWFUL = "lawful"
+    NEUTRAL = "neutral"
+    CHAOTIC = "chaotic"
+
+
 class Player(Base):
     __tablename__ = "player"
 
@@ -74,6 +83,11 @@ class Player(Base):
     next_ttl: Mapped[int] = mapped_column(BigInteger, default=600)
     alignment: Mapped[Alignment] = mapped_column(
         Enum(Alignment), default=Alignment.NEUTRAL
+    )
+    # Stored as text rather than a database enum, so upgrade() can add it to
+    # a table that already exists with a plain ALTER.
+    ethos: Mapped[Ethos] = mapped_column(
+        Enum(Ethos, native_enum=False, length=16), default=Ethos.NEUTRAL
     )
     is_admin: Mapped[bool] = mapped_column(default=False)
     # Position in the realm, for the map and journey quests.
@@ -101,6 +115,13 @@ class Player(Base):
             identity.presence in (Presence.ACTIVE, Presence.AWAY)
             for identity in self.identities
         )
+
+    @property
+    def alignment_name(self) -> str:
+        """'lawful good', 'chaotic neutral', 'true neutral' and so on."""
+        ethos = (self.ethos or Ethos.NEUTRAL).value
+        moral = self.alignment.value
+        return "true neutral" if ethos == moral == "neutral" else f"{ethos} {moral}"
 
 
 class PlatformIdentity(Base):
@@ -232,6 +253,8 @@ class EventLog(Base):
 # tables but never alters an existing one, so these are added by hand.
 ADDED_COLUMNS = [
     ("platform_identity", "login_mask", "VARCHAR(255)"),
+    # Enum names, as SQLAlchemy stores them; existing characters start neutral.
+    ("player", "ethos", "VARCHAR(16) DEFAULT 'NEUTRAL'"),
 ]
 
 

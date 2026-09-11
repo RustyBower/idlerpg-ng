@@ -85,6 +85,18 @@ def eligible(players: list[Player]) -> list[Player]:
     return [p for p in players if p.is_idling and p.level >= MIN_LEVEL]
 
 
+def choose_party(candidates: list[Player], rng: random.Random) -> list[Player]:
+    """PARTY_SIZE of the candidates, the lawful a little likelier to be
+    chosen."""
+    pool, party = list(candidates), []
+    while len(party) < PARTY_SIZE:
+        weights = [events.QUEST_WEIGHT[events.ethos(p)] for p in pool]
+        chosen = rng.choices(pool, weights=weights)[0]
+        pool.remove(chosen)
+        party.append(chosen)
+    return party
+
+
 def start(session: Session, players: list[Player], rng: random.Random,
           map_x: int, map_y: int) -> Outcome | None:
     """Begin a quest if enough senior players are around and the gods are
@@ -94,7 +106,7 @@ def start(session: Session, players: list[Player], rng: random.Random,
     candidates = eligible(players)
     if len(candidates) < PARTY_SIZE:
         return None
-    party = rng.sample(candidates, PARTY_SIZE)
+    party = choose_party(candidates, rng)
 
     if rng.randrange(2):
         # The original waits 12 to 24 hours.
@@ -118,8 +130,8 @@ def start(session: Session, players: list[Player], rng: random.Random,
     session.commit()
 
     return Outcome(
-        f"{_names(party)} have been chosen by the gods to {quest.text}.{route} "
-        f"Participants must remain silent.",
+        f"The gods have chosen {_names(party)} to {quest.text}.{route} "
+        f"They must keep silent until it is done.",
         kind="quest",
     )
 
@@ -188,8 +200,8 @@ def _complete(session: Session, quest: Quest, party: list[Player]) -> list[Outco
     _rest(session, REST)
     session.commit()
     return [Outcome(
-        f"{_names(party)} have blessed the realm by completing their quest! "
-        f"25% of their burden is eliminated.",
+        f"{_names(party)} have done it: the quest is complete, and each of "
+        f"them is 25% closer to their next level.",
         kind="quest",
     )]
 
@@ -217,8 +229,8 @@ def fail(session: Session, player: Player,
     _rest(session, FAILURE_REST)
     session.commit()
     return [Outcome(
-        f"{player.name}'s prudence and self-regard has brought the wrath of "
-        f"the gods upon the quest. The party is set back fifteen steps each "
+        f"{player.name} broke the party's silence, and the gods noticed. The "
+        f"party is set back fifteen steps each "
         f"({', '.join(costs)}), and the gods will offer no quest for 12 hours.",
         kind="quest",
     )]

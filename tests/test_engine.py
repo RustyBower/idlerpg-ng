@@ -91,7 +91,7 @@ class TestClock:
         ups = engine.tick(600)
         levels = [o for o in ups if o.kind == "levelup"]
         assert len(levels) == 1
-        assert "attained level 1" in levels[0].message
+        assert "reaches level 1" in levels[0].message
         assert p.level == 1
         assert p.next_ttl == pytest.approx(int(600 * 1.12), abs=1)
 
@@ -341,7 +341,7 @@ class TestAlignment:
     def test_changing_alignment(self, engine):
         from idlerpg.models import Alignment
         p = register(engine)
-        assert engine.set_alignment(p, "Evil") is Alignment.EVIL
+        assert engine.set_alignment(p, "Evil") == "neutral evil"
         assert p.alignment is Alignment.EVIL
 
     def test_it_costs_nothing(self, engine):
@@ -355,7 +355,7 @@ class TestAlignment:
         engine.tick(1)  # drain the registration announcement
         engine.set_alignment(p, "good")
         out = engine.tick(1)
-        assert any(o.kind == "alignment" and "rusty has changed alignment to: good"
+        assert any(o.kind == "alignment" and "rusty is now neutral good"
                    in o.message for o in out)
 
     def test_no_change_no_announcement(self, engine):
@@ -367,7 +367,7 @@ class TestAlignment:
     def test_nonsense_is_refused(self, engine):
         p = register(engine)
         with pytest.raises(RegistrationError):
-            engine.set_alignment(p, "chaotic")
+            engine.set_alignment(p, "sideways")
 
 
 class TestNamesAreChecked:
