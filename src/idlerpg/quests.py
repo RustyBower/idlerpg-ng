@@ -98,10 +98,13 @@ def choose_party(candidates: list[Player], rng: random.Random) -> list[Player]:
 
 
 def start(session: Session, players: list[Player], rng: random.Random,
-          map_x: int, map_y: int) -> Outcome | None:
+          map_x: int, map_y: int, force: bool = False) -> Outcome | None:
     """Begin a quest if enough senior players are around and the gods are
-    not resting."""
-    if resting(session):
+    not resting. ``force`` - an admin's EVENT quest - ignores the rest, but
+    never starts a second quest alongside one already running."""
+    if active_quest(session) is not None:
+        return None
+    if resting(session) and not force:
         return None
     candidates = eligible(players)
     if len(candidates) < PARTY_SIZE:

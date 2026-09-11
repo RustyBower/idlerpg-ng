@@ -85,6 +85,11 @@ class Config:
     site_url: str = field(
         default_factory=lambda: os.environ.get("SITE_URL", "https://idlerpg.129irc.com/")
     )
+    # Character names that are always admins. Set in the deployment, never in
+    # this repository: e.g. IDLERPG_ADMINS=Alice,Bob.
+    admins: tuple[str, ...] = field(default_factory=lambda: tuple(
+        n.strip() for n in os.environ.get("IDLERPG_ADMINS", "").split(",") if n.strip()
+    ))
     irc: IRCConfig = field(default_factory=IRCConfig)
     discord: DiscordConfig = field(default_factory=DiscordConfig)
     curve: Curve = field(

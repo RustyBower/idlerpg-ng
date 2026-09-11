@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import time
 from dataclasses import dataclass
 
 from sqlalchemy import func, select, update
@@ -93,11 +94,20 @@ ALIGNMENT_HELP = (
 
 
 class Engine:
+    # Settings an admin can change, kept in the database so a restart keeps them.
+    PAUSED_KEY, SILENT_KEY, TOPIC_KEY = "paused", "silent", "topic_note"
+
     def __init__(self, session: Session, curve: Curve | None = None,
                  rng: random.Random | None = None):
         self.session = session
         self.curve = curve or Curve()
         self.rng = rng or random.Random()
+        self.started = time.time()
+        # Names that are always admins, from the deployment (IDLERPG_ADMINS).
+        self.owners: frozenset[str] = frozenset()
+        # Asked for by admins, and acted on by the clock outside the engine.
+        self.restart_requested = False
+        self.topic_requested = False
         # Things that happened outside a tick (a quest failing because someone
         # spoke) and still need announcing on the next one.
         self._pending: list[Outcome] = []
@@ -113,6 +123,10 @@ class Engine:
             raise RegistrationError(str(exc)) from None
         if self.find_player(name) is not None:
             raise RegistrationError(f"{name} is already taken")
+        if name.casefold() in self.owners:
+            # An owner's character was deleted; whoever takes the name must
+            # not inherit the admin rights that come with it.
+            raise RegistrationError("that name is reserved")
         if self.find_identity(platform, external_id) is not None:
             raise RegistrationError("that account already has a character")
 
@@ -286,6 +300,13 @@ class Engine:
         """
         if elapsed_seconds <= 0:
             return []
+        if self.paused:
+            # Nothing moves, but what admins queued still gets said.
+            said, self._pending = list(self._pending), []
+            for outcome in said:
+                self.log_event(outcome.kind, outcome.message, commit=False)
+            self.session.commit()
+            return said
 
         players = self.session.scalars(
             select(Player)
@@ -417,6 +438,8 @@ class Engine:
         # both strictly worse than playing from one - the opposite of the point.
         if kind in DEPARTURE_PENALTIES and self.still_present_elsewhere(player, platform):
             return 0
+        if self.paused:
+            return 0
 
         seconds = penalty_seconds(
             kind, player.level, self.curve, message_length=message_length
@@ -474,12 +497,92 @@ class Engine:
         """
         if not verify_password(password, player.password_hash):
             raise RegistrationError("wrong password")
+        self.delete_player(player, f"{player.name} has left the realm for good.")
+
+    def delete_player(self, player: Player, farewell: str) -> None:
+        """Delete a character and say ``farewell``. A quester leaving fails
+        the quest, as quitting would."""
         self._pending.extend(quests.fail(self.session, player, self.curve))
-        name = player.name
         self.session.delete(player)
         self.session.commit()
-        self._pending.append(Outcome(f"{name} has left the realm for good.",
-                                     kind="remove"))
+        self._pending.append(Outcome(farewell, kind="remove"))
+
+    # ------------------------------------------------------------------ admin
+
+    @property
+    def paused(self) -> bool:
+        return self.get_setting(self.PAUSED_KEY) == "1"
+
+    @property
+    def silent(self) -> bool:
+        return self.get_setting(self.SILENT_KEY) == "1"
+
+    def apply_owners(self, names) -> None:
+        """Make the deployment's named characters admins. Others made admin
+        with MKADMIN stay so; only owners cannot be demoted."""
+        self.owners = frozenset(n.strip().casefold() for n in names if n.strip())
+        for player in self.session.scalars(select(Player)):
+            if player.name.casefold() in self.owners and not player.is_admin:
+                player.is_admin = True
+                log.info("%s is an admin by IDLERPG_ADMINS", player.name)
+        self.session.commit()
+
+    def is_owner(self, player: Player) -> bool:
+        return player.name.casefold() in self.owners
+
+    def all_players(self) -> list[Player]:
+        return list(self.session.scalars(
+            select(Player).options(selectinload(Player.identities))))
+
+    def announce(self, outcomes) -> None:
+        """Queue outcomes for every platform, at the next tick."""
+        self._pending.extend(outcomes)
+        self.session.commit()
+
+    def set_admin(self, player: Player, admin: bool) -> None:
+        player.is_admin = admin
+        self.session.commit()
+
+    def reset_password(self, player: Player, new: str) -> None:
+        if not new:
+            raise RegistrationError("the new password cannot be empty")
+        player.password_hash = hash_password(new)
+        self.session.commit()
+
+    def rename(self, player: Player, new: str) -> str:
+        try:
+            name = check_name(new)
+        except ValueError as exc:
+            raise RegistrationError(str(exc)) from None
+        other = self.find_player(name)
+        if other is not None and other.id != player.id:
+            raise RegistrationError(f"{name} is already taken")
+        old, player.name = player.name, name
+        self.session.commit()
+        self._pending.append(Outcome(f"{old} is now known as {name}.", kind="rename"))
+        return name
+
+    def set_class(self, player: Player, text: str) -> None:
+        try:
+            player.character_class = check_class(text)
+        except ValueError as exc:
+            raise RegistrationError(str(exc)) from None
+        self.session.commit()
+
+    def push(self, player: Player, seconds: int) -> None:
+        """Move a timer: positive toward the next level, negative away."""
+        player.next_ttl = max(1, player.next_ttl - seconds)
+        self.session.commit()
+        way = "toward" if seconds >= 0 else "away from"
+        self._pending.append(Outcome(
+            f"The gods' hand moves {player.name} {duration(abs(seconds))} {way} "
+            f"level {player.level + 1}.", kind="push"))
+
+    def move(self, player: Player, x: int, y: int) -> None:
+        if not (0 <= x < MAP_X and 0 <= y < MAP_Y):
+            raise ValueError(f"the realm is {MAP_X} by {MAP_Y}")
+        player.x, player.y = x, y
+        self.session.commit()
 
     def record_login(self, player: Player, platform: Platform,
                      announce: bool = True) -> None:

@@ -21,6 +21,7 @@ import logging
 
 import discord
 
+from .. import admin
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
@@ -458,14 +459,16 @@ class DiscordAdapter(discord.Client):
         # These take a password. On IRC they arrive as a private message; the
         # Discord equivalent is a DM. Refuse them in a channel and delete the
         # evidence, rather than echoing a password back to a room.
-        if verb in PASSWORD_VERBS and not is_dm:
+        # Admin commands too: they are nobody else's business, and CHPASS
+        # carries a password of its own.
+        if (verb in PASSWORD_VERBS or verb.upper() in admin.VERBS) and not is_dm:
             try:
                 await message.delete()
             except discord.HTTPException:
                 pass
             try:
                 await author.send(
-                    "Send that to me in a DM, not a channel - it contains your "
+                    "Send that to me in a DM, not a channel - it may contain a "
                     "password. I deleted the message if I was able to."
                 )
             except discord.HTTPException:
@@ -577,5 +580,9 @@ class DiscordAdapter(discord.Client):
                 f"next level in {duration(player.next_ttl)}, "
                 f"alignment {player.alignment_name}."
             )
+        elif verb.upper() in admin.VERBS:
+            await reply(admin.run(
+                self.engine, self.engine.player_for(Platform.DISCORD, external),
+                verb, args))
         else:
             await reply(HELP)

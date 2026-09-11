@@ -10,7 +10,8 @@ does not. **One person is one character across IRC and Discord**, with a shared
 engine, so the two sides are one game rather than two unrelated ones.
 
 Running at [idlerpg.129irc.com](https://idlerpg.129irc.com/) on
-[129irc](https://129irc.com).
+[129irc](https://129irc.com). What changed in each release is in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Playing
 
@@ -94,6 +95,49 @@ ones. The classic IdleRPG `events.txt` is not bundled - its licence forbids
 redistributing it - but `EVENTS_FILE` can point at your own copy to mix its
 lines in. Times read as durations throughout, like `3d 4h`.
 
+## Running it
+
+Admins are characters with the admin flag. `IDLERPG_ADMINS` names the
+characters that always are - set it in the deployment, never in this
+repository - and `MKADMIN` and `DELADMIN` manage the rest. Once a name is
+listed, nobody else can register it, so deleting an owner's character does not
+hand the rights to whoever takes the name next. Admin commands go by `/msg` on
+IRC and by DM on Discord (`!info`, `!pause on` and so on); `ADMIN` lists them.
+
+    INFO                        version, uptime, who is online, alignments, quest
+    PAUSE on|off                stop the clock: nothing earns or costs anything
+    SILENT on|off               events carry on and are logged, but nothing is said
+    TOPIC [text|clear]          set the topic now, optionally led by a note
+    RESTART                     exit; Kubernetes starts it again and logins resume
+    DEL <name> confirm          delete a character
+    DELOLD <days> [confirm]     list, then delete, characters not seen for that long
+    MKADMIN <name>              DELADMIN <name>
+    CHPASS <name> <password>    CHUSER <name> <new name>    CHCLASS <name> <class>
+    PUSH <name> <seconds>       toward the next level; negative pushes back
+    MOVE <name> <x> <y>         HOG [name]                  PIT <name> <name>
+    EVENT <kind> [name]         hog, calamity, godsend, chaos, battle, team, war,
+                                goodness, evilness, balance or quest
+
+Pause and silence survive a restart. The original's `REHASH`, `RELOADDB`,
+`JUMP`, `BACKUP`, `DIE` and `CLEARQ` have no counterpart: settings come from the
+deployment, the database is always live, backups belong to the cluster, and
+scaling the deployment to zero stops the bot. Its raw-IRC command is left out:
+a stolen admin password should not be able to make the bot say anything.
+
+## Balancing
+
+`python -m idlerpg.simulate` runs the real engine against an in-memory
+database with simulated players, and reports how each alignment fared:
+
+    python -m idlerpg.simulate --days 60 --per-alignment 5 --talk 1 --step 900
+    python -m idlerpg.simulate --players "lawful good:5,chaotic evil:5"
+    python -m idlerpg.simulate --set LUCK.chaotic=1.25 --json run.json
+
+The number to watch is pace - progress earned over time elapsed. Idling alone
+gives 1.0 less time away; events push it up and penalties pull it down.
+`--set` tries a tuning number from `events.py` without editing it, and runs are
+seeded, so a change can be compared against the same luck.
+
 ## The two decisions that shape this
 
 **One character, many platform identities.** A `Player` is the character;
@@ -115,11 +159,12 @@ paying twice.
 Levelling, items including uniques, single and team battles, the Hand of God,
 calamities, godsends, war between the map's quadrants, the nine alignments and
 their events, quests as vigils and journeys, the world map, all seven penalty
-types, logins that survive restarts, channel topics, and a website with
-standings, a map, quest status, per-player pages and an event feed.
+types, logins that survive restarts, channel topics, admin commands, a
+balancing simulator, and a website with standings, a map, quest status,
+per-player pages and an event feed.
 
-Not yet: the admin commands (next), fights when players meet on the map, the
-original's eight named uniques, and items left lying on the map.
+Not yet: fights when players meet on the map, the original's eight named
+uniques, and items left lying on the map.
 
 ## Tuning
 
@@ -147,6 +192,7 @@ length does not change the game.
 | Variable | Default | |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///idlerpg.db` | Postgres works too |
+| `IDLERPG_ADMINS` | | character names that are always admins, e.g. `Alice,Bob` |
 | `IRC_HOST` / `IRC_PORT` | `irc.129irc.com` / `6697` | |
 | `IRC_TLS` / `IRC_TLS_VERIFY` | `true` / `true` | |
 | `IRC_NICK` / `IRC_CHANNEL` | `idlerpg` / `#idlerpg` | |

@@ -25,7 +25,7 @@ import re
 import ssl
 from dataclasses import dataclass
 
-from .. import __version__
+from .. import __version__, admin
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
@@ -135,6 +135,20 @@ class IRCAdapter:
 
     def say(self, text: str) -> None:
         self.send(f"PRIVMSG {self.cfg.channel} :{safe(text)}")
+
+    def notice_lines(self, target: str, text: str, width: int = 380) -> None:
+        """A long reply as several notices, split between its " | " items, so
+        the server does not cut it off at 512 bytes."""
+        line = ""
+        for part in text.split(" | "):
+            candidate = f"{line} | {part}" if line else part
+            if len(candidate) > width and line:
+                self.notice(target, line)
+                line = part
+            else:
+                line = candidate
+        if line:
+            self.notice(target, line)
 
     # --------------------------------------------------------------- helpers
 
@@ -356,6 +370,9 @@ class IRCAdapter:
                 f"next level in {duration(player.next_ttl)}, "
                 f"alignment {player.alignment_name}.",
             )
+        elif verb in admin.VERBS:
+            self.notice_lines(
+                nick, admin.run(self.engine, self.character_for_nick(nick), verb, args))
         else:
             self.notice(nick, HELP)
 

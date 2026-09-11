@@ -15,6 +15,62 @@ from .config import Config
 from .engine import Engine
 from .models import Base, upgrade
 
+log = logging.getLogger("idlerpg")
+
+
+def build_topic(engine: Engine, site_url: str) -> str | None:
+    """An admin's note if there is one, then the site link and the top three,
+    as the original did."""
+    note = engine.get_setting(engine.TOPIC_KEY) or ""
+    top = engine.top_players(3)
+    if not top and not note:
+        return None
+    parts = [
+        f"#{i}: {p.name}, lv. {p.level} {p.character_class or 'wanderer'}"
+        for i, p in enumerate(top, 1)
+    ]
+    topic = f"{site_url} " + "; ".join(parts) if parts else site_url
+    return f"{note} | {topic}" if note else topic
+
+
+async def set_topic(adapters: list, topic: str) -> None:
+    for a in adapters:
+        try:
+            await a.set_topic(topic)
+        except Exception:
+            log.debug("topic update failed", exc_info=True)
+
+
+async def tick_once(engine: Engine, adapters: list, seconds: float,
+                    site_url: str) -> None:
+    """One turn of the clock, and whatever admins asked of it since the last.
+
+    The clock lives here, not in an adapter: one tick drives the whole world
+    and its announcements go to every platform, so nobody is credited twice
+    and neither side is silent - unless an admin has made it so.
+    """
+    try:
+        outcomes = engine.tick(seconds)
+    except Exception:
+        log.exception("tick failed")
+        return
+    if engine.topic_requested:
+        engine.topic_requested = False
+        topic = build_topic(engine, site_url)
+        if topic:
+            await set_topic(adapters, topic)
+    if not engine.silent:
+        for outcome in outcomes:
+            for a in adapters:
+                try:
+                    await a.announce(outcome.message)
+                except Exception:
+                    log.debug("announce failed", exc_info=True)
+    if engine.restart_requested:
+        # Exit cleanly; Kubernetes starts a fresh process and logins resume.
+        log.info("restarting at an admin's request")
+        raise SystemExit(0)
+
 
 def main() -> int:
     logging.basicConfig(
@@ -22,7 +78,6 @@ def main() -> int:
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         stream=sys.stdout,
     )
-    log = logging.getLogger("idlerpg")
 
     config = Config()
     db = sa_create_engine(config.database_url, future=True)
@@ -32,6 +87,7 @@ def main() -> int:
 
     with Session(db) as session:
         engine = Engine(session, config.curve)
+        engine.apply_owners(config.admins)
         adapter = IRCAdapter(engine, config)
         log.info(
             "connecting to %s:%s as %s in %s",
@@ -40,35 +96,9 @@ def main() -> int:
         adapters: list = [adapter]
 
         async def tick_loop() -> None:
-            """The clock lives here, not in an adapter.
-
-            One tick drives the whole world and its announcements go to every
-            platform, so nobody is credited twice and neither side is silent.
-            """
             while True:
                 await asyncio.sleep(config.tick_seconds)
-                try:
-                    outcomes = engine.tick(config.tick_seconds)
-                except Exception:
-                    log.exception("tick failed")
-                    continue
-                for outcome in outcomes:
-                    for a in adapters:
-                        try:
-                            await a.announce(outcome.message)
-                        except Exception:
-                            log.debug("announce failed", exc_info=True)
-
-        def build_topic() -> str | None:
-            """The site link plus the top three, as the original did."""
-            top = engine.top_players(3)
-            if not top:
-                return None
-            parts = [
-                f"#{i}: {p.name}, lv. {p.level} {p.character_class or 'wanderer'}"
-                for i, p in enumerate(top, 1)
-            ]
-            return f"{config.site_url} " + "; ".join(parts)
+                await tick_once(engine, adapters, config.tick_seconds, config.site_url)
 
         async def topic_loop() -> None:
             # Set it shortly after startup rather than making the first update
@@ -77,14 +107,9 @@ def main() -> int:
             while True:
                 await asyncio.sleep(delay)
                 delay = config.topic_seconds
-                topic = build_topic()
-                if topic is None:
-                    continue  # nothing to boast about yet
-                for a in adapters:
-                    try:
-                        await a.set_topic(topic)
-                    except Exception:
-                        log.debug("topic update failed", exc_info=True)
+                topic = build_topic(engine, config.site_url)
+                if topic is not None:
+                    await set_topic(adapters, topic)
 
         async def run_all() -> None:
             tasks = [

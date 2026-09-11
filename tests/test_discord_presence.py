@@ -375,3 +375,15 @@ class TestAccountCommandsOnDiscord:
         m = Message(member, "hello everyone", Channel())
         await adapter.on_message(m)
         assert m.reactions == ["\N{HOURGLASS WITH FLOWING SAND}"]
+
+
+class TestAdminOnDiscord:
+    @pytest.mark.asyncio
+    async def test_admin_commands_work_in_a_dm_and_hide_from_the_channel(self, adapter, guild):
+        member = Member(guild, role=True)
+        await command(adapter, member, "!register Rusty pw Boss")
+        adapter.engine.apply_owners(["Rusty"])
+        m = await command(adapter, member, "!info", channel=Channel())
+        assert m.deleted and m.replies == []
+        m = await command(adapter, member, "!info")
+        assert "idlerpg-ng" in m.replies[0]
