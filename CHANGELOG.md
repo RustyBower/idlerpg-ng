@@ -3,7 +3,7 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.16.0 - unreleased
+## 0.16.0 - 2026-09-11
 
 - **NPCs** make up the numbers in a small realm: they join while it is quiet
   and leave as people arrive, keeping their level for next time. They idle,
