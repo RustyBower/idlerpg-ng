@@ -3,6 +3,30 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.25.0 - 2026-09-12
+
+- **Items left lying on the map.** The item you replace is no longer thrown
+  away if it was worth keeping: a unique always, or gear better than your own
+  average, is left where you stood. Anyone who drifts within fifty squares
+  takes it if it beats what they carry, leaving theirs in its place. Nothing
+  is created - a dropped item was already in play - so this is never a second
+  source of loot on top of level-ups. About seven items a week are worth
+  leaving, 46% of them are found, and the map carries nought to three at a
+  time; everything else is discarded exactly as before.
+- **The world map updates as you watch it.** It swaps in a fresh map every
+  fifteen seconds without reloading the page, and draws what is lying about,
+  each marker naming the item's level, what it is and who left it.
+- **The realm is told what a new version brought**, once, when it comes up on
+  one: the headlines from this file and a link to the rest. A restart says
+  nothing, and neither does a version it has already announced, so a crash
+  loop cannot spam the channel.
+- *Measurement*: no measurable cost to the realm's pace. Over eight seeds the
+  difference against a control with pickups switched off is -0.6% +/- 1.6%,
+  which does not clear zero. An earlier four-seed run suggested a 1.4% drag
+  and did not survive four more seeds, one of which swung 4.3% the other way.
+  Alignment spread sits inside the harness's noise at this sample size, and
+  nothing in the rule looks at alignment.
+
 ## 0.24.0 - 2026-09-11
 
 - **A weekly recap**, posted to both platforms on Sunday evening (18:00 UTC):

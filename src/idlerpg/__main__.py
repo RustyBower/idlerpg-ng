@@ -10,7 +10,7 @@ import sys
 from sqlalchemy import create_engine as sa_create_engine
 from sqlalchemy.orm import Session
 
-from . import history
+from . import history, news
 from .adapters.irc import IRCAdapter
 from .config import Config
 from .engine import Engine
@@ -93,6 +93,9 @@ def main() -> int:
         # Once: the level-ups announced before the event log recorded who
         # they were about, so the charts show the whole climb.
         history.backfill(engine)
+        # What this version brought, said once on the first tick after the
+        # adapters have connected - not once per restart.
+        news.announce(engine, config.site_url)
         adapter = IRCAdapter(engine, config)
         log.info(
             "connecting to %s:%s as %s in %s",

@@ -34,7 +34,7 @@ from .models import (
     Presence,
     utcnow,
 )
-from . import achievements, events, fights, lore, npcs, quests, recap, seasonal
+from . import achievements, events, fights, ground, lore, npcs, quests, recap, seasonal
 from .events import Outcome
 from .rules import Curve, Penalty, penalty_seconds, ttl
 
@@ -344,6 +344,7 @@ class Engine:
         if self._hour_wait <= 0:
             self._hour_wait = 3600
             announcements.extend(achievements.hourly(self, online))
+            ground.sweep(self.session)      # what nobody came for has rotted
         # The week in review, on its own calendar rather than a countdown, so
         # a restart cannot push it around the week.
         announcements.extend(recap.maybe(self))
@@ -365,6 +366,9 @@ class Engine:
                 found = events.find_item(player, self.rng)
                 if found:
                     announcements.append(found)
+                    if found.dropped:
+                        # The item it replaced is left where they stand.
+                        ground.drop(self.session, player, *found.dropped)
                 announcements.extend(achievements.on_level(player, self.rng))
                 if player not in levelled:
                     levelled.append(player)
@@ -382,6 +386,9 @@ class Engine:
         for player in online:
             if player.id not in walked:
                 events.move_player(player, events_map_x(), events_map_y(), self.rng)
+        # Whoever has drifted within reach of something better than they carry
+        # picks it up, leaving their own behind in its place.
+        announcements.extend(ground.pickups(self.session, online))
         # Two who land on one tile fight, as in the original: on FIGHT's
         # terms, at most once a day for any pair.
         announcements.extend(fights.meetings(self, online, fights.now()))

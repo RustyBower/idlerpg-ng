@@ -271,6 +271,7 @@ svg.map .pin.irc circle{fill:var(--accent)}
 svg.map .pin.discord circle{fill:#5865f2}
 svg.map .pin.both circle{fill:var(--on)}
 svg.map .pin.off{opacity:.35}
+svg.map .lost rect{fill:var(--muted);stroke:var(--panel);stroke-width:2;opacity:.75}
 footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
 .plat{display:inline-block;font-size:.68rem;font-weight:700;letter-spacing:.04em;
 padding:.1rem .42rem;border-radius:4px;margin-right:.3rem;border:1px solid var(--line)}
@@ -298,6 +299,7 @@ box-shadow:0 0 0 1px var(--line)}
 .key i.k-irc{background:var(--accent)}
 .key i.k-discord{background:#5865f2}
 .key i.k-both{background:var(--on)}
+.key i.k-lost{background:var(--muted);border-radius:2px}
 .feed{list-style:none;padding:0;margin:0}
 .feed li{padding:.5rem .1rem;border-bottom:1px solid var(--line);font-size:.93rem}
 .feed .when{color:var(--muted);font-variant-numeric:tabular-nums;
@@ -547,6 +549,22 @@ def titled(p) -> str:
     return f'<span class="ptitle">, {E(p["title"])}</span>' if p.get("title") else ""
 
 
+def load_ground(limit=200) -> list:
+    """What is lying on the map, best first."""
+    try:
+        from .events import SLOTS
+        from .models import GroundItem
+        with Session(db()) as s:
+            rows = s.scalars(
+                select(GroundItem).order_by(GroundItem.value.desc()).limit(limit)
+            ).all()
+            return [{"what": SLOTS.get(r.slot, r.slot), "value": r.value,
+                     "x": r.x or 0, "y": r.y or 0, "left_by": r.left_by or ""}
+                    for r in rows]
+    except Exception:
+        return []
+
+
 def load_levels(player_id) -> list:
     """(when, level) for each level-up recorded, oldest first."""
     if not player_id:
@@ -652,7 +670,29 @@ def page_index(players):
     return layout("Standings", body, "/")
 
 
-def page_map(players, quest):
+# The map repaints itself without reloading the page: it fetches this very
+# page and swaps in its <svg>, so the server stays the only thing that knows
+# how to draw the realm. Kept out of the f-string below, whose braces would
+# otherwise have to be doubled.
+MAP_SCRIPT = """<script>
+(function () {
+  if (!window.fetch || !document.querySelector('svg.map')) return;
+  setInterval(function () {
+    fetch('/map', {cache: 'no-store'})
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var fresh = new DOMParser().parseFromString(html, 'text/html')
+                      .querySelector('svg.map');
+        var here = document.querySelector('svg.map');
+        if (fresh && here) here.replaceWith(fresh);
+      })
+      .catch(function () {});
+  }, 15000);
+})();
+</script>"""
+
+
+def page_map(players, quest, lost=()):
     """The realm, as SVG.
 
     The quadrant lines are not decoration: war is fought between them, so it is
@@ -700,6 +740,16 @@ def page_map(players, quest):
                 f'<text x="{gx:.1f}" y="{gy+5:.1f}" class="goalnum">{n}</text>'
             )
 
+    # Drawn before the pins, so a character always sits on top of the litter.
+    lost_marks = "".join(
+        f'<g class="lost"><rect x="{sx(g["x"]) - 5:.1f}" y="{sy(g["y"]) - 5:.1f}" '
+        f'width="10" height="10" '
+        f'transform="rotate(45 {sx(g["x"]):.1f} {sy(g["y"]):.1f})"/>'
+        f'<title>a level {g["value"]} {E(g["what"])} lying at ({g["x"]}, {g["y"]})'
+        f'{" - left by " + E(g["left_by"]) if g["left_by"] else ""}</title></g>'
+        for g in lost
+    )
+
     marks = []
     for p in sorted(players, key=lambda q: q["online"]):
         cx, cy = sx(p["x"]), sy(p["y"])
@@ -717,22 +767,30 @@ def page_map(players, quest):
 
     note = ("Dashed rings are the current quest's waypoints, numbered in order."
             if goals else "No quest is running.")
+    litter = (f"{len(lost)} item{'' if len(lost) == 1 else 's'} lie where they were "
+              f"replaced; walk near one better than your own and you take it."
+              if lost else "")
     body = f"""<h2>The realm</h2>
 <svg class="map" viewBox="-10 -10 {S+20:.0f} {S+20:.0f}" role="img"
      aria-label="Map of the realm showing where each player stands">
   <rect x="0" y="0" width="{S:.0f}" height="{S:.0f}" class="ground"/>
   {terrain_svg()}
-  {grid}{quads}{home}{goals}{"".join(marks)}
+  {grid}{quads}{home}{goals}{lost_marks}{"".join(marks)}
 </svg>
+{MAP_SCRIPT}
 <p class="muted">
   <span class="key"><i class="k-irc"></i>IRC</span>
   <span class="key"><i class="k-discord"></i>Discord</span>
   <span class="key"><i class="k-both"></i>both</span>
-  &nbsp; Filled pins are online; faded ones are not. {note}
+  <span class="key"><i class="k-lost"></i>lying about</span>
+  &nbsp; Filled pins are online; faded ones are not. {note} {litter}
   The realm is {MAP_X}&times;{MAP_Y} and players drift a step at a time while they idle,
   inside the dashed heartland; anyone out in the wilds beyond it wanders back in.
 </p>"""
-    return layout("World map", body, "/map")
+    # The script above keeps it current every 15 seconds; the meta refresh is
+    # only the fallback for a browser running without JavaScript, so it can be
+    # slow rather than fighting the live swap for the page.
+    return layout("World map", body, "/map", refresh=300)
 
 
 def page_quest(quest, players):
@@ -1038,7 +1096,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self._send(page_index(load_players()))
         elif path == "/map":
-            self._send(page_map(load_players(), load_quest()))
+            self._send(page_map(load_players(), load_quest(), load_ground()))
         elif path == "/quest":
             self._send(page_quest(load_quest(), load_players()))
         elif path == "/game":

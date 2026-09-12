@@ -132,7 +132,19 @@ and even ±5% left lawful good ahead beyond luck (`MORAL_BATTLE`, all 1.0).
 **The map.** Characters drift at random through the middle 80% of the map,
 the heartland, and wander back in from the wilds at its rim. The realm's
 places - and so its journeys - all lie inside the heartland. The map no
-longer wraps from one edge to the other.
+longer wraps from one edge to the other. The site's map redraws itself every
+fifteen seconds, so it can be left open and watched.
+
+**Things left lying about.** The item you replace is thrown away as the
+original throws it away - unless it was worth keeping. A unique always is,
+and so is gear better than your own average: that is left where you stood,
+and whoever drifts within fifty squares takes it if it beats what they carry,
+leaving theirs in its place. Nothing is created, so this is never a second
+source of loot; what is dropped was already in play. Anything nobody comes
+for rots after three days. In simulation about seven items a week are worth
+leaving and 46% of them are found, which keeps the map to a handful at a time
+and costs the realm's pace nothing that can be measured (-0.6% +/- 1.6% over
+eight seeds, against a control with pickups switched off).
 
 **NPCs** make up the numbers in a small realm, so quests, team battles and
 fights have enough people. While fewer than `NPC_REALM` characters have been
@@ -251,10 +263,12 @@ Levelling, items including uniques, single and team battles, the Hand of God,
 calamities, godsends, war between the map's quadrants, the nine alignments and
 their events, quests as vigils and journeys, the world map, all seven penalty
 types, logins that survive restarts, channel topics, admin commands, a
-balancing simulator, a weekly recap posted to both platforms, and a website
-with standings, a map, quest status, per-player pages and an event feed.
+balancing simulator, a weekly recap posted to both platforms, items left
+lying on the map, a what's-new line on each new version, and a website with
+standings, a live map, quest status, per-player pages and an event feed.
 
-Not yet: items left lying on the map, and a map that updates as you watch it.
+Nothing from the original is missing now. What is left is polish, and
+whatever the realm turns out to want.
 
 ## Tuning
 

@@ -199,6 +199,28 @@ class Item(Base):
     player: Mapped[Player] = relationship(back_populates="items")
 
 
+class GroundItem(Base):
+    """An item lying on the map, waiting for someone to come across it.
+
+    Not tied to a player: it is the item somebody replaced, left where they
+    were standing. No unique constraint either - one tile can hold several,
+    and the same slot can be lying about in a dozen places at once.
+    """
+
+    __tablename__ = "ground_item"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slot: Mapped[str] = mapped_column(String(32))
+    value: Mapped[int] = mapped_column(Integer, default=0)
+    tag: Mapped[str] = mapped_column(String(32), default="")
+    x: Mapped[int] = mapped_column(Integer, default=0)
+    y: Mapped[int] = mapped_column(Integer, default=0)
+    # A name rather than a foreign key: it is flavour, and it has to survive
+    # whoever dropped it leaving the realm for good.
+    left_by: Mapped[str] = mapped_column(String(64), default="")
+    dropped: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class PenaltyRecord(Base):
     """Individual penalties, rather than the original's running totals.
 

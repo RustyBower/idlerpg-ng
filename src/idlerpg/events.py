@@ -176,6 +176,10 @@ class Outcome:
     kind: str = "event"
     player_id: int | None = None    # who it was about, for the history
     level: int | None = None        # the level reached, for a level-up
+    # (slot, value, tag) of the item this one replaced, for the ground. The
+    # engine owns the session, so find_item reports the drop rather than
+    # writing it.
+    dropped: tuple[str, int, str] | None = None
 
 
 def roll_item_level(player_level: int, rng: random.Random) -> int:
@@ -217,19 +221,20 @@ def find_item(player, rng: random.Random) -> Outcome | None:
     current = next((i for i in player.items if i.slot == slot), None)
     if current is None or level <= current.value:
         return None
-    old = current.value
+    old, old_tag = current.value, current.tag
     current.value = level
     current.tag = tag
+    left = (slot, old, old_tag)
     if named:
         return Outcome(
             f"{player.name} found {named}, a level {level} {SLOTS[slot]}! "
-            f"Their old level {old} {SLOTS[slot]} is discarded.",
-            kind="item", player_id=player.id,
+            f"Their old level {old} {SLOTS[slot]} is left where they stood.",
+            kind="item", player_id=player.id, dropped=left,
         )
     return Outcome(
         f"{player.name} found a level {level} {SLOTS[slot]}! "
-        f"Their old level {old} {SLOTS[slot]} is discarded.",
-        kind="item", player_id=player.id,
+        f"Their old level {old} {SLOTS[slot]} is left where they stood.",
+        kind="item", player_id=player.id, dropped=left,
     )
 
 
