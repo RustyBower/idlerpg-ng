@@ -3,6 +3,28 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.26.0 - 2026-09-12
+
+- **The eight uniques do something now.** Each grants what its story suggests
+  on top of being worth a great deal: the Lantern of Small Mercies softens
+  calamities, the Kumquat of Ages quickens levels, the Last Honest Ledger and
+  the Bell That Must Not Ring shrink penalties, the Moon-Rake strengthens
+  godsends, the Crown of Minor Kings and the Door That Was a Mimic add battle
+  strength, and the Seven-League Courser carries a quest party as it always
+  has. The find announcement and your page on the site say what each one does.
+- Grants are written as ranks of the prestige perks and added by the single
+  function every rule already reads, so an item and a bought rank compose, and
+  nothing that applies a modifier had to learn that items exist. Each unique
+  now carries its own tag to key that on; nobody held one yet, so nothing was
+  lost.
+- *Judgement, not measurement*: these are 2-5% modifiers on items that turn up
+  about once in a climb from 1 to 80, well below what the simulator can
+  resolve - it cannot separate 2% from its own noise without far more seeds
+  than the effect is worth. They are set by eye, and said so rather than
+  blessed by a measurement that could not have failed. The one to watch is
+  battle strength, where the Crown and the Door alongside five bought ranks
+  reach +16%.
+
 ## 0.25.0 - 2026-09-12
 
 - **Items left lying on the map.** The item you replace is no longer thrown

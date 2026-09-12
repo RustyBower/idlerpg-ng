@@ -839,9 +839,16 @@ is set back, and the gods offer no quest for 12 hours.</p>"""
 
 
 def page_player(player):
+    from .events import trait_text
+
+    def tag_cell(slot):
+        tag = player["item_tags"].get(slot, "") or ""
+        grants = trait_text(tag) if tag else ""
+        return f"{E(tag)} - {E(grants)}" if grants else E(tag)
+
     items = "".join(
         f'<tr><td>{E(slot)}</td><td class="num">{value}</td>'
-        f'<td class="muted">{E(player["item_tags"].get(slot, "") or "")}</td></tr>'
+        f'<td class="muted">{tag_cell(slot)}</td></tr>'
         for slot, value in sorted(player["items"].items(), key=lambda kv: -kv[1])
     )
     pens = "".join(

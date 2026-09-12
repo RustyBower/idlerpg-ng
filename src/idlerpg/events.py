@@ -58,8 +58,9 @@ LEVELUP_BATTLE_FROM = 25
 
 # A mount carries a quest party like this many ranks of Stride.
 MOUNT_STRIDE = 2
-# What marks a unique item, and the mount among them, in Item.tag.
-UNIQUE_TAG = "a"
+# Each unique carries its own name in Item.tag, which is what TRAITS reads to
+# decide what holding it does. The original marked every unique "a"; that
+# cannot tell the eight apart, so it is not used here.
 MOUNT_TAG = "mount"
 # How uniques turn up: from this level, on about this many item finds.
 UNIQUE_FROM = 25
@@ -77,19 +78,64 @@ class Unique:
     from_level: int
     value: int          # the least it is worth
     spread: int         # and how much above that it can roll
-    tag: str = UNIQUE_TAG
+    tag: str            # its own, and the key into TRAITS - no default, so a
+                        # ninth unique cannot quietly arrive granting nothing
 
 
 UNIQUES = [
-    Unique("the Lantern of Small Mercies", "charm", 25, 75, 20),
-    Unique("the Kumquat of Ages", "amulet", 30, 80, 20),
+    Unique("the Lantern of Small Mercies", "charm", 25, 75, 20, tag="lantern"),
+    Unique("the Kumquat of Ages", "amulet", 30, 80, 20, tag="kumquat"),
     Unique("the Seven-League Courser", "boots", 30, 80, 20, tag=MOUNT_TAG),
-    Unique("the Last Honest Ledger", "tunic", 35, 85, 20),
-    Unique("the Bell That Must Not Ring", "helm", 40, 90, 20),
-    Unique("the Moon-Rake", "weapon", 45, 95, 25),
-    Unique("the Crown of Minor Kings", "leggings", 50, 100, 25),
-    Unique("the Door That Was a Mimic", "shield", 55, 105, 25),
+    Unique("the Last Honest Ledger", "tunic", 35, 85, 20, tag="ledger"),
+    Unique("the Bell That Must Not Ring", "helm", 40, 90, 20, tag="bell"),
+    Unique("the Moon-Rake", "weapon", 45, 95, 25, tag="moonrake"),
+    Unique("the Crown of Minor Kings", "leggings", 50, 100, 25, tag="crown"),
+    Unique("the Door That Was a Mimic", "shield", 55, 105, 25, tag="door"),
 ]
+
+# What carrying one does, beyond being worth a great deal. Written as ranks of
+# the prestige perks so that an item and a perk compose through one code path -
+# rank() adds them together - rather than each growing its own arithmetic.
+#
+# A rank is what a prestige point buys, so one rank is real without being
+# lavish, and a unique turns up about once in a climb from 1 to 80. These are
+# too small and too rare for the simulator to resolve: it cannot separate 2%
+# from its own noise without many more seeds than the effect deserves, so they
+# are set by judgement and said so, not blessed by a measurement that could
+# not have failed. The one worth watching is champion, which feeds FIGHT and
+# the level-up battle, where the Crown and the Door together with five perk
+# ranks reach +16%.
+TRAITS: dict[str, dict[str, int]] = {
+    "lantern": {"warding": 1},      # small mercies: calamities land softer
+    "kumquat": {"swiftness": 1},    # of ages: the years weigh less
+    MOUNT_TAG: {"stride": MOUNT_STRIDE},   # carries a whole quest party
+    "ledger": {"composure": 1},     # honest books, fewer fines
+    "bell": {"composure": 1},       # the one you must not ring
+    "moonrake": {"fortune": 1},     # rakes in what the moon spills
+    "crown": {"champion": 2},       # minor kings still command
+    "door": {"champion": 1},        # it bites back
+}
+
+# For telling a player what their item does, on the site and when it is found.
+TRAIT_TEXT = {
+    "warding": "calamities {}% weaker",
+    "fortune": "godsends {}% stronger",
+    "swiftness": "levels {}% faster",
+    "composure": "penalties {}% smaller",
+    "champion": "{}% more battle strength",
+    "stride": "carries a quest party {}% faster",
+}
+TRAIT_STEP = {"warding": 5, "fortune": 5, "swiftness": 2, "composure": 2,
+              "champion": 2, "stride": 20}
+
+
+def trait_text(tag: str) -> str:
+    """What the item tagged ``tag`` grants, in words, or nothing."""
+    return ", ".join(
+        TRAIT_TEXT[perk].format(TRAIT_STEP[perk] * ranks)
+        for perk, ranks in TRAITS.get(tag, {}).items()
+        if perk in TRAIT_TEXT
+    )
 
 # Alignment tuning, kept together so it can be adjusted as the realm is
 # watched. Good and evil decide critical strikes and the goodness and evilness
@@ -113,9 +159,22 @@ ENDURANCE_PER_RANK = 0.20   # the wall past the cap, eased this much toward the 
 
 
 def rank(player, perk: str) -> int:
-    """A player's ranks in a prestige perk, or none for anything without."""
+    """A player's ranks in a perk: those they bought, plus those the uniques
+    they carry grant.
+
+    Every modifier in the game reads its strength from here, so widening this
+    one function is what lets a carried item ease the wall, soften a calamity
+    or quicken a journey without any of those places learning about items.
+    """
     reader = getattr(player, "perk_rank", None)
-    return reader(perk) if reader else 0
+    bought = reader(perk) if reader else 0
+    # Tags are read defensively: the fairness harness and the simulator hand
+    # this function stand-in players whose items carry a value and nothing
+    # else, and neither needs to grow a field to ask what a perk is worth.
+    return bought + sum(
+        TRAITS.get(getattr(item, "tag", "") or "", {}).get(perk, 0)
+        for item in getattr(player, "items", None) or ()
+    )
 
 
 def swiftness(player) -> float:
@@ -226,9 +285,12 @@ def find_item(player, rng: random.Random) -> Outcome | None:
     current.tag = tag
     left = (slot, old, old_tag)
     if named:
+        grants = trait_text(tag)
+        does = f" ({grants})" if grants else ""
         return Outcome(
-            f"{player.name} found {named}, a level {level} {SLOTS[slot]}! "
-            f"Their old level {old} {SLOTS[slot]} is left where they stood.",
+            f"{player.name} found {named}, a level {level} {SLOTS[slot]}"
+            f"{does}! Their old level {old} {SLOTS[slot]} is left where "
+            f"they stood.",
             kind="item", player_id=player.id, dropped=left,
         )
     return Outcome(
