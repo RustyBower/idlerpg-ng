@@ -3,7 +3,7 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
-## 0.23.0 - unreleased
+## 0.23.0 - 2026-09-11
 
 - **A battle on levelling**, as the original does, from level 25 - where
   challenges stop being declined. In simulation it lifts battles from 21 to
