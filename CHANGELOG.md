@@ -3,6 +3,27 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.27.0 - 2026-09-12
+
+- **Logins follow your services account, not just your address.** The bot now
+  negotiates IRC capabilities, and where the network says who is identified to
+  services it remembers that alongside the connection. A login is resumed by
+  account first, which holds across a new address, a reconnect from anywhere,
+  and a cloak applied a moment after joining. Nobody has to be registered:
+  without an account the connection's `nick!user@host` works exactly as before.
+- **A vhost landing late no longer strands you.** Services often apply a vhost
+  after you have joined, which silently invalidated the address the bot had
+  remembered - and nothing ever re-checked, so you stayed logged out until you
+  logged in by hand. `CHGHOST` is now followed, and identifying after joining
+  logs you straight in.
+- When somebody the bot has seen play is *not* logged back in, it now says so
+  in the log, with where they are and what it remembered. The miss used to be
+  silent, which is indistinguishable from the bot being broken.
+- *Operators*: capabilities are taken only if offered - `account-notify`,
+  `extended-join`, `chghost` and `multi-prefix` - and a server that speaks no
+  CAP at all registers exactly as it did before. One added column,
+  `platform_identity.login_account`, applied on start like the others.
+
 ## 0.26.0 - 2026-09-12
 
 - **The eight uniques do something now.** Each grants what its story suggests

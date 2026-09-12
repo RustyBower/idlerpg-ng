@@ -11,10 +11,17 @@ currently bound to it kept in display_name. The adapter maps live nicks to
 those identities for the duration of a connection.
 
 That map dies with the bot, so each login's nick!user@host is also stored.
-When the bot rejoins it asks WHO is in the channel and logs back in anyone
-connected from a remembered mask, as the original bot's autologin did; a
-player who turns up later from one is logged in as they join. Quitting,
-parting, being kicked and LOGOUT end a login. A netsplit does not.
+When the bot rejoins it asks WHO is in the channel and logs back in anyone it
+recognises, as the original bot's autologin did; a player who turns up later
+is logged in as they join. Quitting, parting, being kicked and LOGOUT end a
+login. A netsplit does not.
+
+Recognising them prefers the services account, where the network offers one
+through account-notify and extended-join: it is authenticated, and it holds
+across a new address, a cloak applied a moment after joining, and a reconnect
+from anywhere. Not everybody registers with services, so the connection's
+nick!user@host remains the fallback, and chghost keeps that address current
+when services change it underneath a player.
 """
 
 from __future__ import annotations
@@ -100,6 +107,12 @@ class IRCAdapter:
     # The protocol itself goes at once, whatever is queued.
     IMMEDIATE = frozenset({"PONG", "PING", "NICK", "USER", "PASS", "CAP", "JOIN",
                            "WHO", "QUIT"})
+    # What the bot can make use of, if the server offers it. account-notify
+    # and extended-join say who is identified to services, which is a far
+    # better key for a login than an address; chghost keeps a remembered
+    # address current when a cloak lands; multi-prefix shows every rank at
+    # once, so voice tracking does not have to infer the rest.
+    WANTED_CAPS = ("account-notify", "extended-join", "chghost", "multi-prefix")
     VOICES_PER_LINE = 4
     # Channel modes that take a parameter either way, and those that take one
     # only when set, so a MODE line's parameters can be matched to its modes.
@@ -138,6 +151,15 @@ class IRCAdapter:
         self.voiced: set[str] = set()
         # Told, this connection, why they cannot speak in a moderated channel.
         self.greeted: set[str] = set()
+        # Capabilities the server agreed to, and what it says each nick's
+        # services account is - learned from extended-join, ACCOUNT and WHOX,
+        # and dropped with the connection that told us.
+        self.caps: set[str] = set()
+        self.offered: set[str] = set()
+        self.accounts: dict[str, str] = {}
+        # Whether the server's ISUPPORT advertises WHOX, which is the only way
+        # to learn the accounts of people already here when the bot arrives.
+        self.whox = False
 
     # ------------------------------------------------------------------ wire
 
@@ -153,6 +175,10 @@ class IRCAdapter:
         )
         log.info("connected to %s:%s", self.cfg.host, self.cfg.port)
         self.nick = self.cfg.nick
+        # Ask what the server can do before registering. Anything it does not
+        # offer is simply not used: CAP END follows either way, so a server
+        # with no capabilities at all registers exactly as it always did.
+        self.send("CAP LS 302")
         self.send(f"NICK {self.nick}")
         self.send(f"USER {self.cfg.user} 0 * :{self.cfg.realname}")
 
@@ -225,7 +251,8 @@ class IRCAdapter:
         external = self.bound.get(nick.lower())
         return self.engine.player_for(Platform.IRC, external) if external else None
 
-    def bind(self, nick: str, player, mask: str | None = None) -> bool:
+    def bind(self, nick: str, player, mask: str | None = None,
+             account: str | None = None) -> bool:
         """Attach ``nick`` to ``player``; returns whether they are now earning.
 
         Logging in is how a character reaches IRC, so one registered on Discord
@@ -249,6 +276,9 @@ class IRCAdapter:
                 irc_identity.display_name = nick
         if mask:
             self.engine.remember_login(identity, mask)
+        account = account or self.accounts.get(nick.lower())
+        if account:
+            self.engine.remember_account(identity, account)
         here = self._settle(player, identity.external_id)
         if here:
             self.voice(nick)
@@ -274,6 +304,7 @@ class IRCAdapter:
             identity = self.engine.find_identity(Platform.IRC, external)
             if identity is not None:
                 self.engine.remember_login(identity, None)
+                self.engine.remember_account(identity, None)
         self.devoice(nick)          # still in the channel, but logged out
         self.bound.pop(nick.lower(), None)
         self._settle(player, external)
@@ -301,15 +332,38 @@ class IRCAdapter:
             self.send(f"PRIVMSG NickServ :IDENTIFY {self.cfg.nickserv_password}")
 
     def resume(self, nick: str, mask: str) -> None:
-        """Log ``nick`` back in if ``mask`` is a login the bot never saw end.
+        """Log ``nick`` back in if this is a login the bot never saw end.
 
-        The full mask rather than the nick: anyone can take a nick and run up
-        its owner's penalties, but a bouncer keeps user@host stable.
+        The services account first, where the network tells us of one: it is
+        authenticated, and it survives a new address, a cloak applied a moment
+        late, and a reconnect from anywhere. Failing that, the whole
+        nick!user@host - anyone can take a nick and run up its owner's
+        penalties, but a bouncer keeps user@host stable.
         """
-        if not mask or nick.lower() in self.bound:
+        if nick.lower() in self.bound:
+            return
+        account = self.accounts.get(nick.lower())
+        if account:
+            identity = self.engine.resume_account(Platform.IRC, account)
+            if identity is not None:
+                self.bind(nick, identity.player, mask, account=account)
+                self.engine.record_login(identity.player, Platform.IRC,
+                                         announce=False)
+                log.info("resumed %s as %s, by services account %s",
+                         nick, identity.player.name, account)
+                return
+        if not mask:
             return
         identity = self.engine.resume_login(Platform.IRC, mask)
         if identity is None:
+            # Say why, when it is somebody the bot has seen play. A client
+            # that comes back on another address - a reconnect on a new IP, a
+            # cloak applied a moment later - is a stranger to the remembered
+            # login, and the player is left wondering where it went.
+            remembered = self.engine.remembered_mask(Platform.IRC, nick)
+            if remembered and remembered != mask.lower():
+                log.info("not resuming %s: here as %s, remembered as %s",
+                         nick, mask.lower(), remembered)
             return
         self.bind(nick, identity.player, mask)
         self.engine.record_login(identity.player, Platform.IRC, announce=False)
@@ -575,6 +629,47 @@ class IRCAdapter:
                 f"{self.cfg.nickserv_email}"
             )
 
+    # ----------------------------------------------------------- capabilities
+
+    def capabilities(self, msg: Message) -> None:
+        """Take what the server offers of WANTED_CAPS, then finish registering.
+
+        CAP END is sent whatever happens - a server that offers nothing, or
+        refuses everything, must still see registration completed, or the
+        connection hangs before 001 and the realm never comes up.
+        """
+        sub = msg.params[1].upper() if len(msg.params) > 1 else ""
+        if sub == "LS":
+            self.offered.update(msg.text.split())
+            # "CAP * LS * :..." means another line of the list follows.
+            if len(msg.params) > 2 and msg.params[-2] == "*":
+                return
+            wanted = [c for c in self.WANTED_CAPS if c in self.offered]
+            if wanted:
+                self.send(f"CAP REQ :{' '.join(wanted)}")
+            else:
+                log.info("server offers none of the capabilities we use")
+                self.send("CAP END")
+        elif sub == "ACK":
+            self.caps.update(msg.text.split())
+            log.info("capabilities: %s", " ".join(sorted(self.caps)))
+            self.send("CAP END")
+        elif sub == "NAK":
+            log.info("server refused capabilities: %s", msg.text)
+            self.send("CAP END")
+
+    def _account(self, nick: str, account: str) -> None:
+        """Note who a nick is identified to, and log them in if that is a
+        login the bot never saw end. "*" means they logged out of services."""
+        key = nick.lower()
+        if not account or account == "*":
+            self.accounts.pop(key, None)
+            return
+        self.accounts[key] = account.lower()
+        # Identifying after joining is the ordinary case for a client that
+        # logs in on connect, and it is the moment their login can be found.
+        self.resume(nick, "")
+
     # --------------------------------------------------------------- dispatch
 
     def handle(self, msg: Message) -> None:
@@ -582,6 +677,29 @@ class IRCAdapter:
         channel = self.cfg.channel.lower()
         if cmd == "PING":
             self.send(f"PONG :{msg.text}")
+        elif cmd == "CAP":
+            self.capabilities(msg)
+        elif cmd == "005":
+            # ISUPPORT. WHOX is the only way to ask for the accounts of people
+            # already here; without it they are known only once they speak of
+            # themselves through ACCOUNT, a fresh JOIN, or a changed host.
+            if any(t.upper() == "WHOX" for t in msg.params[1:-1]):
+                self.whox = True
+        elif cmd == "ACCOUNT":
+            self._account(msg.nick, msg.text)
+        elif cmd == "CHGHOST":
+            # A vhost landing after the player joined: the address the login
+            # was remembered under has just changed under us. Follow it, and
+            # try again for anyone it might now match.
+            if len(msg.params) >= 2:
+                fresh = f"{msg.nick}!{msg.params[0]}@{msg.params[1]}"
+                external = self.bound.get(msg.nick.lower())
+                if external is not None:
+                    identity = self.engine.find_identity(Platform.IRC, external)
+                    if identity is not None:
+                        self.engine.remember_login(identity, fresh)
+                else:
+                    self.resume(msg.nick, fresh)
         elif cmd == "001":  # welcome
             if msg.params:
                 self.nick = msg.params[0]
@@ -646,6 +764,12 @@ class IRCAdapter:
                 self.send(f"WHO {self.cfg.channel}")
                 return
             self.members.add(msg.nick.lower())
+            # With extended-join the server names the joiner's services
+            # account: ":nick!u@h JOIN #chan account :Real Name", "*" for none.
+            if "extended-join" in self.caps and len(msg.params) >= 2:
+                account = msg.params[1]
+                if account and account != "*":
+                    self.accounts[msg.nick.lower()] = account.lower()
             external = self.bound.get(msg.nick.lower())
             player = self.character_for_nick(msg.nick) if external else None
             if player is not None:
@@ -785,6 +909,12 @@ class IRCAdapter:
             self.voiced.clear()
             self.ranks.clear()
             self.greeted.clear()
+            # Capabilities and accounts belong to the connection that told us
+            # of them, and are negotiated again on the next one.
+            self.caps.clear()
+            self.offered.clear()
+            self.accounts.clear()
+            self.whox = False
             if self.writer:
                 self.writer.close()
                 self.writer = None

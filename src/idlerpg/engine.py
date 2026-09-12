@@ -260,6 +260,39 @@ class Engine:
         if changed:
             self.session.commit()
 
+    def remember_account(self, identity: PlatformIdentity,
+                         account: str | None) -> None:
+        """Record the services account a login was made from, or forget it.
+
+        An account belongs to one character at a time, as a connection does:
+        logging in as someone else from the same account moves it there.
+        """
+        account = account.lower() if account else None
+        if account is not None:
+            self.session.execute(
+                update(PlatformIdentity)
+                .where(
+                    PlatformIdentity.platform == identity.platform,
+                    func.lower(PlatformIdentity.login_account) == account,
+                    PlatformIdentity.id != identity.id,
+                )
+                .values(login_account=None)
+            )
+        identity.login_account = account
+        self.session.commit()
+
+    def resume_account(self, platform: Platform,
+                       account: str) -> PlatformIdentity | None:
+        """The identity last logged in from this services account, if any."""
+        if not account:
+            return None
+        return self.session.scalar(
+            select(PlatformIdentity).where(
+                PlatformIdentity.platform == platform,
+                func.lower(PlatformIdentity.login_account) == account.strip().lower(),
+            )
+        )
+
     def remember_login(self, identity: PlatformIdentity,
                        mask: str | None) -> None:
         """Record the connection an identity is logged in from, or forget it.
@@ -282,6 +315,22 @@ class Engine:
             )
         identity.login_mask = mask
         self.session.commit()
+
+    def remembered_mask(self, platform: Platform, nick: str) -> str | None:
+        """The connection remembered for whoever last played as ``nick``.
+
+        Only for explaining a resume that did not happen: a login is keyed to
+        the whole nick!user@host, so someone back from a different address is
+        a stranger to resume_login, and without this the miss is silent.
+        """
+        identity = self.session.scalar(
+            select(PlatformIdentity).where(
+                PlatformIdentity.platform == platform,
+                func.lower(PlatformIdentity.display_name) == nick.strip().lower(),
+                PlatformIdentity.login_mask.is_not(None),
+            )
+        )
+        return identity.login_mask if identity else None
 
     def resume_login(self, platform: Platform,
                      mask: str) -> PlatformIdentity | None:

@@ -179,6 +179,11 @@ class PlatformIdentity(Base):
     # the login can be resumed: nick!user@host on IRC. Discord needs none - its
     # account id is already durable, and the role says who is playing.
     login_mask: Mapped[str | None] = mapped_column(String(255), default=None)
+    # The services account the login was made from, when the network tells us
+    # of one. Better than the mask in every way - it is authenticated, and it
+    # survives a new address, a cloak landing late and a reconnect - so it is
+    # tried first. The mask stays for everyone not registered with services.
+    login_account: Mapped[str | None] = mapped_column(String(128), default=None)
 
     player: Mapped[Player] = relationship(back_populates="identities")
 
@@ -362,6 +367,7 @@ class EventLog(Base):
 # tables but never alters an existing one, so these are added by hand.
 ADDED_COLUMNS = [
     ("platform_identity", "login_mask", "VARCHAR(255)"),
+    ("platform_identity", "login_account", "VARCHAR(128)"),
     # Enum names, as SQLAlchemy stores them; existing characters start neutral.
     ("player", "ethos", "VARCHAR(16) DEFAULT 'NEUTRAL'"),
     ("player", "prestige", "INTEGER DEFAULT 0"),

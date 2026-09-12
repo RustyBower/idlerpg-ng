@@ -321,6 +321,62 @@ class TestLoginsSurviveRestarts:
         self._who(fresh, host="somewhere.else")
         assert not p.is_idling
 
+    def test_an_account_resumes_from_a_new_address(self, adapter):
+        """The point of the account: the same person, a different address."""
+        p = self._logged_in(adapter)
+        adapter.caps.add("extended-join")
+        adapter.accounts["rusty"] = "rustyaccount"
+        adapter.bind("rusty", p, MASK, account="rustyaccount")
+
+        fresh = self._restart(adapter)
+        fresh.caps.add("extended-join")
+        feed(fresh, ":rusty!ident@brand.new.address JOIN #idlerpg rustyaccount :Real")
+        assert p.is_idling
+
+    def test_an_unregistered_player_still_has_the_address(self, adapter):
+        p = self._logged_in(adapter)
+        fresh = self._restart(adapter)
+        feed(fresh, f":{MASK} JOIN #idlerpg")
+        assert p.is_idling
+
+    def test_a_vhost_landing_late_is_followed(self, adapter):
+        """Anope applies the vhost after the join; without chghost the
+        remembered address is stale from that moment on."""
+        feed(adapter, f":{MASK} JOIN #idlerpg")   # in the channel, so idling
+        p = self._logged_in(adapter)
+        assert p.is_idling
+        feed(adapter, ":rusty!ident@cloak.example CHGHOST ident vhost.example")
+        fresh = self._restart(adapter)
+        self._who(fresh, host="vhost.example")
+        assert p.is_idling
+
+    def test_identifying_after_joining_logs_them_in(self, adapter):
+        p = self._logged_in(adapter)
+        adapter.bind("rusty", p, MASK, account="rustyaccount")
+        fresh = self._restart(adapter)
+        feed(fresh, ":rusty!ident@brand.new.address JOIN #idlerpg")
+        assert not p.is_idling               # a stranger, for now
+        feed(fresh, ":rusty!ident@brand.new.address ACCOUNT rustyaccount")
+        assert p.is_idling
+
+    def test_a_miss_says_why_it_missed(self, adapter, caplog):
+        """A silent miss is indistinguishable from the bot being broken."""
+        self._logged_in(adapter)
+        fresh = self._restart(adapter)
+        with caplog.at_level("INFO"):
+            self._who(fresh, host="somewhere.else")
+        assert "not resuming rusty" in caplog.text
+        assert "somewhere.else" in caplog.text     # where they are now
+        assert "cloak.example" in caplog.text      # and what was remembered
+
+    def test_a_stranger_is_not_worth_a_word(self, adapter, caplog):
+        """resume() runs for every join, so an unknown nick must stay quiet."""
+        self._logged_in(adapter)
+        fresh = self._restart(adapter)
+        with caplog.at_level("INFO"):
+            self._who(fresh, nick="passerby", user="x", host="y")
+        assert "not resuming" not in caplog.text
+
     def test_turning_up_later_resumes_too(self, adapter):
         p = self._logged_in(adapter)
         fresh = self._restart(adapter)
