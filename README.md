@@ -4,10 +4,15 @@ A game you play by doing nothing. Stay connected and stay quiet, and your
 character levels up. Talking, parting, quitting and changing your nick all set
 you back.
 
-The rules come from the classic Perl IdleRPG (via
-[RustyBower/idlerpg](https://github.com/RustyBower/idlerpg)); the architecture
-does not. **One person is one character across IRC and Discord**, with a shared
-engine, so the two sides are one game rather than two unrelated ones.
+This is a re-implementation of the classic Perl IdleRPG (`bot.pl`, via
+[RustyBower/idlerpg](https://github.com/RustyBower/idlerpg)) rather than a
+port. The rules and the feel are the original's, and everything it did is
+here: the Hand of God, calamities and godsends, quests, wars, team battles,
+the eight named uniques, a battle at each level-up. The code, the platforms
+and several of the numbers are not - see [where it improves on the
+original](#where-it-improves-on-the-original). **One person is one character
+across IRC and Discord**, with a shared engine, so the two sides are one game
+rather than two unrelated ones.
 
 Running at [idlerpg.129irc.com](https://idlerpg.129irc.com/) on
 [129irc](https://129irc.com). What changed in each release is in
@@ -122,8 +127,14 @@ for any pair, and never two questers on the same quest.
 from level 25 picks a fight, as the original does. Items come from level-ups,
 and from level 25 a find can turn up one of the realm's eight named uniques -
 each in its own slot, behind its own level, worth far more than the curve can
-roll. A climb from 1 to 80 turns up about one. The Seven-League Courser is a
-mount: whoever holds it carries their whole quest party along faster. Whoever
+roll. A climb from 1 to 80 turns up about one. Each also grants what its story
+suggests, written as ranks of the prestige perks so that an item and a bought
+rank add together: the Lantern of Small Mercies softens calamities, the
+Kumquat of Ages quickens levels, the Last Honest Ledger and the Bell That Must
+Not Ring shrink penalties, the Moon-Rake strengthens godsends, the Crown of
+Minor Kings and the Door That Was a Mimic add battle strength, and the
+Seven-League Courser is a mount, carrying a whole quest party along faster.
+Whoever
 beats you most becomes your rival, named in `WHOAMI`; beating someone ten
 levels above you leaves a trophy. The original's ±10% good-and-evil battle
 modifier is *not* used: in simulation it doubled the gap between alignments,
@@ -269,6 +280,53 @@ standings, a live map, quest status, per-player pages and an event feed.
 
 Nothing from the original is missing now. What is left is polish, and
 whatever the realm turns out to want.
+
+## Where it improves on the original
+
+**A curve you can finish.** Upstream's `rpstep` of 1.16 puts level 60 about
+320 days away; at 1.12 it is 52. Past 60 the original adds a flat day a level,
+which barely slows anything down - here each level costs a quarter more than
+the last, so level 80 is six years away and the wall is real. Penalties grow
+10% a level rather than 14%, so they no longer outrun the curve they are meant
+to sit under.
+
+**Two platforms, one character.** The original keys a player to an IRC nick,
+which cannot describe someone playing from two places. Here a character holds
+IRC and Discord identities, earns once however many it holds, and can absorb a
+second character you registered by mistake.
+
+**A map worth standing on.** The original's map wraps, which strings
+characters along the rim and flings them from one edge to the other. Here they
+drift through a heartland in the middle 80%, quests are journeys to named
+places, two who meet on a tile fight, and good gear gets left lying about for
+somebody else to find.
+
+**Nine alignments, not three.** Good, neutral and evil gain a law-chaos axis,
+and each half has events of its own.
+
+**Things to do besides wait.** Prestige and perks from level 60, a daily duel
+in `FIGHT`, achievements, keepsakes, rivals and trophies, three seasons that
+each bend a rule and grant honours, and NPCs so that a quiet realm still has
+enough people for quests and wars.
+
+**Balance decided by measurement.** `python -m idlerpg.simulate` and
+`python -m idlerpg.fairness` run the realm offline before a rule ships, and
+rules have been rejected on what they showed: the original's ±10%
+good-and-evil battle modifier doubles the gap between alignments, so it stays
+switched off here.
+
+**A realm you can look at.** Standings, a live map, quest status, per-player
+pages with level charts, an event feed, and a weekly recap posted to both
+channels.
+
+**Safer by default.** A name that could pass for another character is refused,
+IRC players are voiced while they are logged in, and the channel can be
+moderated so that only logged-in players speak.
+
+The one thing deliberately left behind is the original's `events.txt`: its
+licence forbids redistribution, so the realm's calamities, godsends and quests
+are composed from its own lore instead. `EVENTS_FILE` points at your own copy
+if you have one.
 
 ## Tuning
 
