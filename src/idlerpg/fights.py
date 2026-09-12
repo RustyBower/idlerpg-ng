@@ -108,7 +108,7 @@ def fight(engine, me: Player, them: Player, at: int) -> str:
         f"{me.name} [{my_roll}/{mine}] challenged {them.name} [{their_roll}/{theirs}] "
         f"and {'won' if won else 'lost'}! {winner.name} takes {duration(amount)} "
         f"from {loser.name}'s clock.",
-        kind="fight"), *achievements.on_fight(winner, loser)])
+        kind="fight", player_id=winner.id), *achievements.on_fight(winner, loser)])
     if won:
         return f"You won: {duration(amount)} taken from {them.name}'s clock and off yours."
     return f"You lost: {them.name} took {duration(amount)} from your clock."
@@ -156,7 +156,7 @@ def _clash(engine, a: Player, b: Player) -> list[Outcome]:
     amount = _take(engine, winner, loser)
     return [Outcome(f"{a.name} [{ra}/{sa}] and {b.name} [{rb}/{sb}] crossed paths and "
                     f"fought! {winner.name} takes {duration(amount)} from "
-                    f"{loser.name}'s clock.", kind="fight"),
+                    f"{loser.name}'s clock.", kind="fight", player_id=winner.id),
             *achievements.on_fight(winner, loser)]
 
 

@@ -23,7 +23,7 @@ from typing import Literal
 import discord
 from discord import app_commands
 
-from .. import achievements, admin, fights, prestige, seasonal
+from .. import achievements, admin, fights, prestige, recap, seasonal
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..events import item_sum
 from ..models import Platform, Presence
@@ -51,7 +51,7 @@ HELP = (
     "one), `!align <lawful|neutral|chaotic> <good|neutral|evil>`, "
     "`!newpass <current> <new>`, "
     "`!removeme <password>`, `!fight [name]` (once a day, from level 10), "
-    "`!achievements`, "
+    "`!achievements`, `!recap` (the week in the realm), "
     "`!prestige` (from level 60), `!perks`, "
     "`!perk <name>`, `!whoami`. Anything with a password goes in a DM."
 )
@@ -519,6 +519,10 @@ class DiscordAdapter(discord.Client):
         async def achievements_(interaction: discord.Interaction) -> None:
             await run(interaction, "achievements")
 
+        @tree.command(name="recap", description="The week in the realm so far")
+        async def recap_(interaction: discord.Interaction) -> None:
+            await run(interaction, "recap")
+
         @tree.command(name="prestige", description="From level 60: see, or confirm, starting over for perks")
         async def prestige_(interaction: discord.Interaction, confirm: bool = False) -> None:
             await run(interaction, "prestige", "confirm" if confirm else "")
@@ -823,6 +827,10 @@ class DiscordAdapter(discord.Client):
                 verb, args))
         elif verb.upper() in fights.VERBS:
             await reply(fights.command(
+                self.engine, self.engine.player_for(Platform.DISCORD, external),
+                verb, args))
+        elif verb.upper() in recap.VERBS:
+            await reply(recap.command(
                 self.engine, self.engine.player_for(Platform.DISCORD, external),
                 verb, args))
         elif verb.upper() in prestige.VERBS:

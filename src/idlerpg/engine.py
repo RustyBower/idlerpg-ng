@@ -34,7 +34,7 @@ from .models import (
     Presence,
     utcnow,
 )
-from . import achievements, events, fights, lore, npcs, quests, seasonal
+from . import achievements, events, fights, lore, npcs, quests, recap, seasonal
 from .events import Outcome
 from .rules import Curve, Penalty, penalty_seconds, ttl
 
@@ -179,7 +179,7 @@ class Engine:
         self._pending.append(Outcome(
             f"{player.name}, the {player.character_class or 'nameless'}, "
             f"joins the realm from {platform.value}!",
-            kind="register",
+            kind="register", player_id=player.id,
         ))
         return player
 
@@ -344,6 +344,9 @@ class Engine:
         if self._hour_wait <= 0:
             self._hour_wait = 3600
             announcements.extend(achievements.hourly(self, online))
+        # The week in review, on its own calendar rather than a countdown, so
+        # a restart cannot push it around the week.
+        announcements.extend(recap.maybe(self))
 
         pace = self._season_pace(online)
         levelled: list[Player] = []

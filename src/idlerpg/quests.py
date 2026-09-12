@@ -213,7 +213,9 @@ def _complete(session: Session, quest: Quest, party: list[Player]) -> list[Outco
     done = [Outcome(
         f"{_names(party)} have done it: the quest is complete, and each of "
         f"them is 25% closer to their next level.",
-        kind="quest",
+        # Its own kind, so a finished quest can be counted apart from the
+        # ones that were merely offered, walked or abandoned.
+        kind="questdone",
     )]
     for p in party:
         done.extend(achievements.on_quest(p))

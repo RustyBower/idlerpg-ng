@@ -154,6 +154,9 @@ class TestQuests:
         engine.session.commit()
         out = quests.advance(engine.session, quest, engine.rng)
         assert out and "the quest is complete" in out[0].message
+        # Its own kind, so the weekly recap can count finished quests apart
+        # from the ones merely offered, walked or abandoned.
+        assert out[0].kind == "questdone"
         assert all(p.next_ttl == 750 for p in party)   # 25% removed
         assert quests.active_quest(engine.session) is None
 

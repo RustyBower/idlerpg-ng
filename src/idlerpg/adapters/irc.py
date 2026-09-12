@@ -27,7 +27,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 
-from .. import __version__, achievements, admin, fights, prestige, seasonal
+from .. import __version__, achievements, admin, fights, prestige, recap, seasonal
 from ..engine import ALIGNMENT_HELP, Engine, RegistrationError
 from ..models import Platform, Presence
 from ..rules import Penalty
@@ -73,7 +73,7 @@ HELP = (
     "character too) | LOGOUT | WHOAMI | "
     "ALIGN <lawful|neutral|chaotic> <good|neutral|evil> | "
     "NEWPASS <current> <new> | REMOVEME <password> | "
-    "FIGHT [name] (once a day, from level 10) | ACHIEVEMENTS | "
+    "FIGHT [name] (once a day, from level 10) | ACHIEVEMENTS | RECAP | "
     "PRESTIGE (from level 60) | PERKS | PERK <name> | "
     "MERGE <name> <password> (fold another character of yours into this one)"
 )
@@ -530,6 +530,9 @@ class IRCAdapter:
         elif verb in fights.VERBS:
             self.notice_lines(
                 nick, fights.command(self.engine, self.character_for_nick(nick), verb, args))
+        elif verb in recap.VERBS:
+            self.notice_lines(
+                nick, recap.command(self.engine, self.character_for_nick(nick), verb, args))
         elif verb in prestige.VERBS:
             self.notice_lines(
                 nick, prestige.command(self.engine, self.character_for_nick(nick), verb, args))

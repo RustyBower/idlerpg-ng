@@ -31,8 +31,12 @@ def old(engine, message, kind="levelup"):
 
 
 def linked(engine):
+    """Level-ups that know whose they are - what backfill fills in and what
+    the site's chart reads. Finds, arrivals and fights carry an id too, but
+    neither of those ever looks at them."""
     return {(row.player_id, row.level) for row in engine.session.scalars(
-        select(EventLog).where(EventLog.player_id.is_not(None)))}
+        select(EventLog).where(EventLog.player_id.is_not(None),
+                               EventLog.kind == "levelup"))}
 
 
 class TestBackfill:

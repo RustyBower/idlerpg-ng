@@ -224,12 +224,12 @@ def find_item(player, rng: random.Random) -> Outcome | None:
         return Outcome(
             f"{player.name} found {named}, a level {level} {SLOTS[slot]}! "
             f"Their old level {old} {SLOTS[slot]} is discarded.",
-            kind="item",
+            kind="item", player_id=player.id,
         )
     return Outcome(
         f"{player.name} found a level {level} {SLOTS[slot]}! "
         f"Their old level {old} {SLOTS[slot]} is discarded.",
-        kind="item",
+        kind="item", player_id=player.id,
     )
 
 

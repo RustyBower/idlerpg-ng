@@ -3,6 +3,21 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.24.0 - 2026-09-11
+
+- **A weekly recap**, posted to both platforms on Sunday evening (18:00 UTC):
+  levels gained, fights fought, quests finished and items found over the week,
+  who climbed hardest, who won most, who is new, and who leads the realm.
+  `RECAP`, or `/recap` on Discord, shows the week so far and when the next one
+  lands.
+- Duels, battles, finds and arrivals now record who they were about, the way
+  level-ups already did, so a week can be attributed to whoever earned it. The
+  site's per-player charts are unchanged: they read level-ups alone.
+- *Operators*: nothing to do. The recap's window is a range of event ids
+  rather than a span of clock time, so a restart can neither lose a week nor
+  report one twice, and the first run after upgrading only starts the clock -
+  the first recap covers the week that follows, not all of recorded history.
+
 ## 0.23.0 - 2026-09-11
 
 - **A battle on levelling**, as the original does, from level 25 - where

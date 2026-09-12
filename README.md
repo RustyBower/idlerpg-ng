@@ -171,6 +171,14 @@ your page on the site lists them all and charts your level history. None of
 it touches a clock, an item or a fight; NPCs earn none of it.
 Times read as durations throughout, like `3d 4h`.
 
+**The week in review.** Every Sunday evening (18:00 UTC) the realm is told how
+its week went: levels gained, fights fought, quests finished and items found,
+who climbed hardest, who won most, who is new, and who leads. `RECAP` - or
+`/recap` on Discord - shows the week so far and when the next one lands. It is
+counted from the event log itself, so the numbers are exactly what the realm
+was told at the time; the window is a range of event ids rather than a span of
+clock time, so a restart can neither lose a week nor report one twice.
+
 ## Running it
 
 Admins are characters with the admin flag. `IDLERPG_ADMINS` names the
@@ -243,11 +251,10 @@ Levelling, items including uniques, single and team battles, the Hand of God,
 calamities, godsends, war between the map's quadrants, the nine alignments and
 their events, quests as vigils and journeys, the world map, all seven penalty
 types, logins that survive restarts, channel topics, admin commands, a
-balancing simulator, and a website with standings, a map, quest status,
-per-player pages and an event feed.
+balancing simulator, a weekly recap posted to both platforms, and a website
+with standings, a map, quest status, per-player pages and an event feed.
 
-Not yet: the original's eight named uniques, a battle at each level-up, and
-items left lying on the map.
+Not yet: items left lying on the map, and a map that updates as you watch it.
 
 ## Tuning
 

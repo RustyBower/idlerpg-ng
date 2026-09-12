@@ -104,7 +104,8 @@ class TestSlashCommands:
     def test_every_command_is_there(self, adapter):
         names = {c.name for c in adapter.tree.get_commands()}
         assert {"register", "login", "merge", "newpass", "removeme", "align", "whoami",
-                "fight", "achievements", "prestige", "perks", "perk", "help", "admin"} <= names
+                "fight", "achievements", "recap", "prestige", "perks", "perk", "help",
+                "admin"} <= names
 
     @pytest.mark.asyncio
     async def test_a_command_runs_and_answers_privately(self, adapter, guild):
