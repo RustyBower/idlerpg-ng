@@ -549,6 +549,74 @@ def titled(p) -> str:
     return f'<span class="ptitle">, {E(p["title"])}</span>' if p.get("title") else ""
 
 
+def mentions(name: str):
+    """Match ``name`` as a whole word in an event's text, or None for no name.
+
+    Bounded by word characters and the hyphen, so "profit" does not pick up
+    everything that happened to "profit-on-irc".
+    """
+    if not name:
+        return None
+    return re.compile(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", re.IGNORECASE)
+
+
+def about(rows, player_id, name, limit=30) -> list:
+    """Of ``rows``, the ones that are this player's, newest first.
+
+    A row carrying their id is theirs outright. Older rows carry none - the
+    engine only began recording whose an event was in 0.21.0, and it still
+    does not attribute the ones with two people in them - so the name is
+    looked for as well, and this is where a false match is thrown out.
+    """
+    word = mentions(name)
+    out = []
+    for row in rows:
+        if row.player_id == player_id or (word and word.search(row.message or "")):
+            out.append({"kind": row.kind, "message": row.message, "at": row.at})
+            if len(out) >= limit:
+                break
+    return out
+
+
+def load_player_events(player_id, name, limit=30) -> list:
+    """What happened to one player, newest first.
+
+    The name is matched in SQL only to narrow the rows worth looking at; the
+    real decision is made in about(). Escaping it matters: a character called
+    r_sty would otherwise match rusty, which is exactly how find_player once
+    went wrong.
+    """
+    from .models import EventLog
+    if not player_id and not name:
+        return []
+    escaped = (name or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like = "%" + escaped + "%"
+    try:
+        with Session(db()) as s:
+            rows = s.scalars(
+                select(EventLog)
+                .where((EventLog.player_id == player_id)
+                       | EventLog.message.ilike(like, escape="\\"))
+                .order_by(EventLog.id.desc())
+                .limit(limit * 10)
+            ).all()
+            return about(rows, player_id, name, limit)
+    except Exception:
+        return []
+
+
+def player_history(rows) -> str:
+    if not rows:
+        return ('<h2>What happened</h2><p class="muted">Nothing recorded yet - '
+                'this fills in as the realm happens to them.</p>')
+    items = "".join(
+        f'<li><span class="when">{E(str(r["at"]).split(".")[0].replace("T", " "))}</span>'
+        f'{E(r["message"])}</li>'
+        for r in rows
+    )
+    return f'<h2>What happened</h2><ul class="feed">{items}</ul>'
+
+
 def load_ground(limit=200) -> list:
     """What is lying on the map, best first."""
     try:
@@ -887,6 +955,7 @@ def page_player(player):
 <table><thead><tr><th>Kind</th><th class="num">Added to timer</th></tr></thead>
 <tbody>{pens}</tbody></table>
 {level_chart(load_levels(player.get("id")))}
+{player_history(load_player_events(player.get("id"), player.get("username")))}
 {feats_table(player)}
 {keepsakes_list(player)}"""
     return layout(player["username"], body, "/")

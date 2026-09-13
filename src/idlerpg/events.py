@@ -316,7 +316,7 @@ def hand_of_god(player, rng: random.Random) -> Outcome:
             f"A single godly finger descends and flicks {player.name} into a "
             f"hedge, {duration(amount)} further from level {player.level + 1}."
         )
-    return Outcome(text, kind="hog")
+    return Outcome(text, kind="hog", player_id=player.id)
 
 
 def calamity(player, rng: random.Random) -> Outcome:
@@ -329,7 +329,7 @@ def calamity(player, rng: random.Random) -> Outcome:
             return Outcome(
                 f"{player.name}'s {SLOTS.get(item.slot, item.slot)} was "
                 f"damaged! It drops from level {before} to {item.value}.",
-                kind="calamity",
+                kind="calamity", player_id=player.id,
             )
     amount = int(int(5 + rng.randrange(8)) / 100 * player.next_ttl
                  * LUCK[ethos(player)]
@@ -338,7 +338,7 @@ def calamity(player, rng: random.Random) -> Outcome:
     return Outcome(
         f"{player.name} {LORE.calamity(rng)}. That costs them {duration(amount)} "
         f"on the road to level {player.level + 1}.",
-        kind="calamity",
+        kind="calamity", player_id=player.id,
     )
 
 
@@ -353,7 +353,7 @@ def godsend(player, rng: random.Random) -> Outcome:
                 return Outcome(
                     f"{player.name}'s {SLOTS.get(item.slot, item.slot)} was "
                     f"blessed! It rises from level {before} to {item.value}.",
-                    kind="godsend",
+                    kind="godsend", player_id=player.id,
                 )
     amount = int(int(5 + rng.randrange(8)) / 100 * player.next_ttl
                  * LUCK[ethos(player)]
@@ -362,7 +362,7 @@ def godsend(player, rng: random.Random) -> Outcome:
     return Outcome(
         f"{player.name} {LORE.godsend(rng)}! That brings them {duration(amount)} "
         f"closer to level {player.level + 1}.",
-        kind="godsend",
+        kind="godsend", player_id=player.id,
     )
 
 
@@ -373,10 +373,12 @@ def trick_or_treat(player, rng: random.Random, curve) -> Outcome:
     if rng.randrange(2):
         player.next_ttl = max(1, player.next_ttl - amount)
         return Outcome(f"{player.name} knocked on a door {where} and was given a treat: "
-                       f"{duration(amount)} off their clock.", kind="treat")
+                       f"{duration(amount)} off their clock.", kind="treat",
+                       player_id=player.id)
     player.next_ttl += amount
     return Outcome(f"{player.name} knocked on a door {where} and was played a trick: "
-                   f"{duration(amount)} on their clock.", kind="trick")
+                   f"{duration(amount)} on their clock.", kind="trick",
+                   player_id=player.id)
 
 
 def item_sum(player) -> int:
@@ -671,7 +673,8 @@ def evilness(online: list, rng: random.Random) -> list[Outcome]:
 def chaos(player, rng: random.Random) -> Outcome:
     """Something odd happens to a chaotic player: luck, either way."""
     outcome = godsend(player, rng) if rng.randrange(2) else calamity(player, rng)
-    return Outcome(f"Chaos stirs. {outcome.message}", kind="chaos")
+    return Outcome(f"Chaos stirs. {outcome.message}", kind="chaos",
+                   player_id=player.id)
 
 
 def balance(player, online: list, rng: random.Random) -> list[Outcome]:
@@ -692,4 +695,4 @@ def balance(player, online: list, rng: random.Random) -> list[Outcome]:
                 f"{player.level + 1}.")
     else:
         return []
-    return [Outcome(text, kind="balance")]
+    return [Outcome(text, kind="balance", player_id=player.id)]

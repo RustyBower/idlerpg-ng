@@ -3,6 +3,18 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.28.0 - 2026-09-12
+
+- **Your page says what happened to you.** Every player's page now carries
+  their own history - the calamities, godsends, hands of god, finds, fights,
+  level-ups and quests the realm put them through, newest first. Asked for by
+  antiroach, who remembered the old version having one.
+- The events that happen *to* one person - the Hand of God, calamities,
+  godsends, chaos, the scales of the realm, and Hallowtide's knock at the
+  door - now record whose they were, as level-ups and finds already did. Older
+  entries, and the ones with two people in them, are found by name instead, so
+  a history reaches back past this release.
+
 ## 0.27.0 - 2026-09-12
 
 - **Logins follow your services account, not just your address.** The bot now
