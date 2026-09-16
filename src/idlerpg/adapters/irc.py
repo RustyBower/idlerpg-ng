@@ -119,6 +119,9 @@ class IRCAdapter:
     PARAM_MODES = frozenset("ovhqabeIk")
     PARAM_WHEN_SET = frozenset("lLfjH")
     RANKS = {"~": "q", "&": "a", "@": "o", "%": "h"}
+    # How long to sit on a stand-in before asking services for our nick
+    # again, in case whatever should have handed it back never said so.
+    RECLAIM_SECONDS = 300.0
 
     def __init__(self, engine: Engine, config):
         self.engine = engine
@@ -136,6 +139,10 @@ class IRCAdapter:
         # The nick we actually hold. It differs from cfg.nick while another
         # connection has ours - usually our own, from before a restart.
         self.nick = self.cfg.nick
+        # Whether the server has welcomed this connection, and when we last
+        # asked services for our nick back.
+        self.registered = False
+        self.reclaimed = 0.0
         # Paced output, once run_forever's pump is running: replies to
         # people jump ahead of what the channel is told.
         self.replies: deque[str] = deque()
@@ -175,6 +182,7 @@ class IRCAdapter:
         )
         log.info("connected to %s:%s", self.cfg.host, self.cfg.port)
         self.nick = self.cfg.nick
+        self.registered = False
         # Ask what the server can do before registering. Anything it does not
         # offer is simply not used: CAP END follows either way, so a server
         # with no capabilities at all registers exactly as it always did.
@@ -214,9 +222,11 @@ class IRCAdapter:
             self.tokens -= 1
 
     async def _pump(self) -> None:
-        """Drain the queue for as long as the connection lasts."""
+        """Drain the queue for as long as the connection lasts, and keep
+        asking for our nick while we are without it."""
         while True:
             self.flush()
+            self.keep_nick()
             if self.writer is not None:
                 await self.writer.drain()
             await asyncio.sleep(self.SEND_INTERVAL / 2)
@@ -326,10 +336,33 @@ class IRCAdapter:
         return here
 
     def _own_nick(self, new: str) -> None:
-        self.nick = new
-        if new.lower() == self.cfg.nick.lower() and self.cfg.nickserv_password:
+        old, self.nick = self.nick, new
+        ours = self.cfg.nick.lower()
+        if not self.cfg.nickserv_password:
+            return
+        if new.lower() == ours:
             # Back on our own nick after a stand-in: identify to it.
             self.send(f"PRIVMSG NickServ :IDENTIFY {self.cfg.nickserv_password}")
+        elif old.lower() == ours:
+            # The bot never leaves its nick by choice, so services moved it to
+            # a guest nick for not identifying - usually because they were off
+            # the network when it connected.
+            log.warning("moved off %s to %s; asking services for it back", old, new)
+            self._reclaim()
+
+    def _reclaim(self) -> None:
+        """Ask services for our nick back. RECOVER kills a ghost holding it or
+        lifts their own hold on it, and their reply says when to take it."""
+        self.reclaimed = self.clock()
+        self.send(f"PRIVMSG NickServ :RECOVER {self.cfg.nick} {self.cfg.nickserv_password}")
+
+    def keep_nick(self) -> None:
+        """Ask again every so often while on a stand-in: services may have been
+        away when we asked, or said something we did not recognise."""
+        if (self.registered and self.cfg.nickserv_password
+                and self.nick.lower() != self.cfg.nick.lower()
+                and self.clock() - self.reclaimed >= self.RECLAIM_SECONDS):
+            self._reclaim()
 
     def resume(self, nick: str, mask: str) -> None:
         """Log ``nick`` back in if this is a login the bot never saw end.
@@ -611,13 +644,24 @@ class IRCAdapter:
         return "" if here else f" Join {self.cfg.channel} to start idling."
 
     def handle_notice(self, msg: Message) -> None:
-        """Watch services: our ghost removed, or our own nick unregistered."""
+        """Watch services: our nick freed, told to identify, or our own nick
+        unregistered."""
         if msg.nick.lower() != "nickserv":
             return
         text = msg.text.lower()
-        if "ghost" in text and self.nick.lower() != self.cfg.nick.lower():
-            # Whatever held our nick is gone; take it back.
+        ours = self.nick.lower() == self.cfg.nick.lower()
+        if not ours and any(s in text for s in ("ghost", "released", "no one is using")):
+            # Whatever held our nick is gone - a ghost killed, or services'
+            # hold on it lifted; take it back.
             self.send(f"NICK {self.cfg.nick}")
+            return
+        if (ours and self.cfg.nickserv_password
+                and ("registered and protected" in text or "owned by someone else" in text)):
+            # Services validate everyone not identified when they link, so this
+            # arrives when they come back after we connected without them. A
+            # minute later they move us to a guest nick unless we identify.
+            log.info("services want %s identified; identifying", self.nick)
+            self.send(f"PRIVMSG NickServ :IDENTIFY {self.cfg.nickserv_password}")
             return
         if self.registration_attempted or not self.cfg.nickserv_email:
             return
@@ -703,6 +747,7 @@ class IRCAdapter:
         elif cmd == "001":  # welcome
             if msg.params:
                 self.nick = msg.params[0]
+            self.registered = True
             # Nobody is bound on a fresh connection, so any IRC presence still
             # recorded - from before a restart - describes no one and must not
             # keep earning. Remembered logins come back once we have joined.
@@ -712,10 +757,7 @@ class IRCAdapter:
                     # Something holds our nick - usually our own connection
                     # from before a restart, not yet timed out. Have services
                     # remove it; the NICK back follows their notice.
-                    self.send(
-                        f"PRIVMSG NickServ :GHOST {self.cfg.nick} "
-                        f"{self.cfg.nickserv_password}"
-                    )
+                    self._reclaim()
                 else:
                     self.send(
                         f"PRIVMSG NickServ :IDENTIFY {self.cfg.nickserv_password}"
@@ -727,6 +769,9 @@ class IRCAdapter:
             self.registration_attempted = False
             self.send(f"JOIN {self.cfg.channel}")
         elif cmd == "433":
+            if self.registered:
+                # Asked for ours back a moment too soon: keep the nick we hold.
+                return
             # Nick in use. Take a stand-in and reclaim ours once it is free;
             # without this the connection never finishes registering.
             taken = msg.params[1] if len(msg.params) > 1 else self.nick

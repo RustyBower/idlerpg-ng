@@ -3,6 +3,18 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.28.1 - 2026-09-16
+
+- **The bot keeps its nick when services come back after it.** If the bot
+  connected while services were off the network, it never identified: its
+  IDENTIFY went nowhere, and when services returned they moved it to a guest
+  nick a minute later and left it there, so `/msg idlerpg` reached nobody. It
+  now identifies when services ask, and if it is moved anyway it asks for its
+  nick back, and asks again every five minutes until it has it.
+- *Operators*: reclaiming the nick from a stale connection sent `GHOST`, which
+  Anope 2.0 ships commented out; it sends `RECOVER` now. All of this needs
+  `IRC_NICKSERV_PASSWORD`.
+
 ## 0.28.0 - 2026-09-12
 
 - **Your page says what happened to you.** Every player's page now carries

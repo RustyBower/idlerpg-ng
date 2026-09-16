@@ -531,8 +531,9 @@ class TestNickInUse:
         assert "NICK idlerpg_" in sent(adapter)
 
     def test_services_are_asked_to_remove_the_ghost(self, adapter):
+        # Anope 2.0 ships GHOST commented out; RECOVER is what it answers to.
         self._stand_in(adapter, "s3cret")
-        assert "PRIVMSG NickServ :GHOST idlerpg s3cret" in sent(adapter)
+        assert "PRIVMSG NickServ :RECOVER idlerpg s3cret" in sent(adapter)
         assert "IDENTIFY" not in sent(adapter)
 
     def test_the_nick_is_taken_back_and_identified(self, adapter):
@@ -560,6 +561,98 @@ class TestNickInUse:
         self._stand_in(adapter)
         feed(adapter, ":idlerpg_!bot@bot.host JOIN #idlerpg")
         assert "WHO #idlerpg" in sent(adapter)
+
+
+class TestServicesComingBack:
+    """On 2026-09-16 the bot reconnected while services were off the network.
+    They linked two minutes later, told it to identify, and a minute after
+    that moved it to Guest1139, where it stayed."""
+
+    PROMPT = (":NickServ!s@services NOTICE idlerpg :This nickname is registered "
+              "and protected.  If it is your")
+
+    def _connected(self, adapter, password="s3cret"):
+        adapter.cfg.nickserv_password = password
+        feed(adapter, ":server 001 idlerpg :Welcome")
+        adapter.writer.lines.clear()
+
+    def _moved(self, adapter, password="s3cret"):
+        self._connected(adapter, password)
+        feed(adapter, ":idlerpg!bot@bot.host NICK :Guest1139")
+
+    def test_identifies_when_services_link_after_us(self, adapter):
+        self._connected(adapter)
+        feed(adapter, self.PROMPT)
+        assert adapter.writer.lines == ["PRIVMSG NickServ :IDENTIFY s3cret"]
+
+    def test_an_unprotected_nick_is_identified_too(self, adapter):
+        self._connected(adapter)
+        feed(adapter, ":NickServ!s@services NOTICE idlerpg :This nick is owned by "
+                      "someone else.  Please choose another.")
+        assert "PRIVMSG NickServ :IDENTIFY s3cret" in adapter.writer.lines
+
+    def test_only_services_can_ask(self, adapter):
+        self._connected(adapter)
+        feed(adapter, ":evil!u@h NOTICE idlerpg :This nickname is registered and protected.")
+        assert adapter.writer.lines == []
+
+    def test_moved_to_a_guest_nick_asks_for_ours_back(self, adapter):
+        self._moved(adapter)
+        assert adapter.nick == "Guest1139"
+        assert adapter.writer.lines == ["PRIVMSG NickServ :RECOVER idlerpg s3cret"]
+
+    def test_the_nick_is_taken_once_services_release_it(self, adapter):
+        self._moved(adapter)
+        adapter.writer.lines.clear()
+        feed(adapter, ":NickServ!s@services NOTICE Guest1139 :Services' hold on "
+                      "idlerpg has been released.")
+        assert adapter.writer.lines == ["NICK idlerpg"]
+        feed(adapter, ":Guest1139!bot@bot.host NICK :idlerpg")
+        assert adapter.nick == "idlerpg"
+        assert "PRIVMSG NickServ :IDENTIFY s3cret" in adapter.writer.lines
+
+    def test_commands_reach_the_guest_nick_meanwhile(self, adapter):
+        self._moved(adapter)
+        adapter.writer.lines.clear()
+        feed(adapter, ":rusty!u@h PRIVMSG Guest1139 :HELP")
+        assert "REGISTER" in sent(adapter)
+
+    def test_asking_too_soon_keeps_the_guest_nick(self, adapter):
+        # Before registering, a taken nick means a stand-in; after, it only
+        # means the nick is not free yet.
+        self._moved(adapter)
+        adapter.writer.lines.clear()
+        feed(adapter, ":server 433 Guest1139 idlerpg :Nickname is already in use")
+        assert adapter.nick == "Guest1139"
+        assert adapter.writer.lines == []
+
+    def test_asks_again_while_still_without_it(self, adapter):
+        now = [1000.0]
+        adapter.clock = lambda: now[0]
+        self._moved(adapter)
+        adapter.writer.lines.clear()
+        now[0] += adapter.RECLAIM_SECONDS - 1
+        adapter.keep_nick()
+        assert adapter.writer.lines == []
+        now[0] += 1
+        adapter.keep_nick()
+        assert adapter.writer.lines == ["PRIVMSG NickServ :RECOVER idlerpg s3cret"]
+
+    def test_nothing_is_asked_on_our_own_nick(self, adapter):
+        now = [1000.0]
+        adapter.clock = lambda: now[0]
+        self._connected(adapter)
+        now[0] += adapter.RECLAIM_SECONDS * 10
+        adapter.keep_nick()
+        assert adapter.writer.lines == []
+
+    def test_without_a_password_a_guest_nick_is_left_alone(self, adapter):
+        self._moved(adapter, password="")
+        now = adapter.clock() + adapter.RECLAIM_SECONDS * 10
+        adapter.clock = lambda: now
+        adapter.keep_nick()
+        feed(adapter, self.PROMPT.replace("idlerpg", "Guest1139", 1))
+        assert adapter.writer.lines == []
 
 
 class TestNothingGarblesTheChannel:

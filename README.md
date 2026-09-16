@@ -378,7 +378,7 @@ length does not change the game.
 | `IRC_NICK` / `IRC_CHANNEL` | `idlerpg` / `#idlerpg` | |
 | `IRC_USER` / `IRC_REALNAME` | `idlerpg` / `IdleRPG` | see the note on realnames below |
 | `IRC_RECONNECT_SECONDS` | `30` | |
-| `IRC_NICKSERV_PASSWORD` | | identifies on connect, and ghosts a stale connection holding the nick |
+| `IRC_NICKSERV_PASSWORD` | | identifies on connect and whenever services ask, and recovers the nick from a stale connection or a guest rename |
 | `IRC_NICKSERV_EMAIL` | | registers the nick if unregistered |
 | `IRC_VOICE` | `true` | voice players while they are logged in; needs ops in the channel |
 | `IRC_MODERATE` | `false` | keep the channel `+m`, so only logged-in (voiced) players can speak, and tell anyone joining logged out how to play |
