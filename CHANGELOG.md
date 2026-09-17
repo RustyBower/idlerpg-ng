@@ -3,6 +3,16 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.29.0 - 2026-09-16
+
+- **The realm hears when someone takes the lead.** Reaching a level nobody
+  else has reached yet is announced, naming whoever was left behind, and the
+  channel topic is updated then rather than waiting up to ten hours for its
+  next refresh. Swaps within a level don't count: a single fight can change
+  who is nearer the next level, which would make for an announcement every
+  few hours. A player who is already alone at the top and levels up again
+  isn't announced either.
+
 ## 0.28.1 - 2026-09-16
 
 - **The bot keeps its nick when services come back after it.** If the bot

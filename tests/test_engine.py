@@ -211,6 +211,59 @@ class TestTopPlayers:
         assert engine.top_players() == []
 
 
+class TestTakingTheLead:
+    """Told when someone reaches a level first, not when a fight reorders a
+    level - and the topic follows."""
+
+    def realm(self, engine, *levels):
+        players = [register(engine, n, external=n) for n in "abcdef"[:len(levels)]]
+        for p, level in zip(players, levels):
+            p.level, p.next_ttl = level, 100_000
+        engine.session.commit()
+        return players
+
+    def leads(self, engine, player):
+        player.next_ttl = 1
+        engine.topic_requested = False
+        return [o for o in engine.tick(1) if o.kind == "lead"]
+
+    def test_first_to_a_level_takes_the_lead(self, engine):
+        a, b, c = self.realm(engine, 42, 42, 41)
+        said = self.leads(engine, b)
+        assert [o.message for o in said] == [
+            "b is the first to reach level 43, and leads the realm ahead of a!"]
+        assert said[0].player_id == b.id
+        assert engine.topic_requested
+
+    def test_everyone_passed_is_named(self, engine):
+        a, b, c, d = self.realm(engine, 42, 42, 42, 40)
+        (said,) = self.leads(engine, a)
+        assert said.message.endswith("ahead of b and c!")
+
+    def test_a_crowd_passed_is_counted(self, engine):
+        players = self.realm(engine, 42, 42, 42, 42, 42)
+        (said,) = self.leads(engine, players[0])
+        assert said.message.endswith("ahead of the 4 others at level 42!")
+
+    def test_catching_up_is_not_a_lead(self, engine):
+        a, b = self.realm(engine, 43, 42)
+        assert self.leads(engine, b) == []
+        assert not engine.topic_requested
+
+    def test_pulling_further_ahead_is_not_news(self, engine):
+        a, b = self.realm(engine, 43, 42)
+        assert self.leads(engine, a) == []
+
+    def test_a_realm_of_one_has_nobody_to_lead(self, engine):
+        (a,) = self.realm(engine, 42)
+        assert self.leads(engine, a) == []
+
+    def test_prestige_outranks_level(self, engine):
+        a, b = self.realm(engine, 60, 5)
+        b.prestige = 1
+        assert self.leads(engine, a) == []    # 61 is still behind a star
+
+
 class TestRegistrationIsAnnouncedEverywhere:
     def test_registering_queues_an_announcement(self, engine):
         register(engine)

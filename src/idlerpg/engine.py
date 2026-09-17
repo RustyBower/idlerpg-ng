@@ -411,6 +411,9 @@ class Engine:
                     f"Next level in {duration(remaining)}.",
                     kind="levelup", player_id=player.id, level=player.level,
                 ))
+                lead = self._took_lead(player, players)
+                if lead is not None:
+                    announcements.append(lead)
                 # Levelling is when the original hands out loot.
                 found = events.find_item(player, self.rng)
                 if found:
@@ -881,6 +884,38 @@ class Engine:
                                     Player.next_ttl.asc())
             .limit(count)
         ).all())
+
+    def _took_lead(self, player: Player, players) -> Outcome | None:
+        """The level-up that makes ``player`` the first to a level nobody else
+        has reached, from level with or behind whoever got there last.
+
+        Who is nearer the next level is not a lead: a single fight swaps that,
+        and the realm would hear of little else. Getting somewhere first is
+        news at most once a level, and needs nothing remembered, so a restart
+        cannot say it twice. The topic follows, as it names the top three.
+        """
+        others = [p for p in players if p is not player]
+        if not others:
+            return None
+        best = max((p.prestige or 0, p.level) for p in others)
+        stars = player.prestige or 0
+        if (stars, player.level) <= best or (stars, player.level - 1) > best:
+            return None
+        passed = [p.name for p in sorted(others, key=lambda p: p.next_ttl)
+                  if (p.prestige or 0, p.level) == best]
+        if len(passed) == 1:
+            behind = passed[0]
+        elif len(passed) <= 3:
+            behind = ", ".join(passed[:-1]) + f" and {passed[-1]}"
+        else:
+            behind = f"the {len(passed)} others at level {best[1]}"
+        where = f"★{stars} level {player.level}" if stars else f"level {player.level}"
+        self.topic_requested = True
+        return Outcome(
+            f"{player.name} is the first to reach {where}, and leads the realm "
+            f"ahead of {behind}!",
+            kind="lead", player_id=player.id,
+        )
 
     def online_players(self) -> list[Player]:
         players = self.session.scalars(
