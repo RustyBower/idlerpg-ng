@@ -315,6 +315,43 @@ class TestLoginsSurviveRestarts:
         feed(fresh, f":{MASK} PRIVMSG idlerpg :WHOAMI")
         assert "rusty, level 0" in sent(fresh)
 
+    def test_whox_asks_for_accounts_when_the_server_has_it(self, adapter):
+        fresh = IRCAdapter(adapter.engine, Config())
+        fresh.writer = FakeWriter()
+        feed(fresh, ":server 001 idlerpg :Welcome")
+        feed(fresh, ":server 005 idlerpg WHOX :are supported")
+        feed(fresh, ":idlerpg!bot@bot.host JOIN #idlerpg")
+        assert f"WHO #idlerpg %tcuhnfa,{IRCAdapter.WHOX_TOKEN}" in sent(fresh)
+
+    def test_whox_resumes_an_account_under_a_guest_nick(self, adapter):
+        """The split of 22 October: services moved players to Guest nicks, the
+        bot reconnected, and nobody's address matched what it remembered."""
+        p = self._logged_in(adapter)
+        adapter.bind("rusty", p, MASK, account="rustyaccount")
+        fresh = self._restart(adapter)
+        feed(fresh, f":server 354 idlerpg {IRCAdapter.WHOX_TOKEN} #idlerpg ident "
+                    f"other.host Guest46193 H rustyaccount")
+        assert p.is_idling
+        assert fresh.character_for_nick("Guest46193") is p
+
+    def test_whox_without_an_account_falls_back_to_the_address(self, adapter):
+        p = self._logged_in(adapter)
+        fresh = self._restart(adapter)
+        feed(fresh, f":server 354 idlerpg {IRCAdapter.WHOX_TOKEN} #idlerpg ident "
+                    f"cloak.example rusty H+ 0")
+        assert p.is_idling and "rusty" in fresh.voiced
+        assert "rusty" not in fresh.accounts
+
+    def test_taking_the_nick_back_resumes(self, adapter):
+        p = self._logged_in(adapter)
+        fresh = self._restart(adapter)
+        self._who(fresh, nick="Guest46193")
+        assert not p.is_idling
+        before = p.next_ttl
+        feed(fresh, ":Guest46193!ident@cloak.example NICK :rusty")
+        assert p.is_idling
+        assert p.next_ttl == before      # not logged in when it changed: no penalty
+
     def test_the_same_nick_from_elsewhere_is_not(self, adapter):
         p = self._logged_in(adapter)
         fresh = self._restart(adapter)

@@ -3,6 +3,16 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.30.0 - 2026-10-23
+
+- **Logins survive a netsplit that takes the bot with it.** When the bot
+  reconnected it recognised players only by their exact `nick!user@host`, so
+  anyone services had moved to a Guest nick, or who came back on another host,
+  sat logged out and unvoiced until they logged in by hand. Where the server
+  supports WHOX the bot now asks for everyone's services account as it joins,
+  and logs in anyone identified wherever they connect from. Changing back to
+  the nick a login was remembered under now logs it back in too.
+
 ## 0.29.0 - 2026-09-16
 
 - **The realm hears when someone takes the lead.** Reaching a level nobody

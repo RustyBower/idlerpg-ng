@@ -104,6 +104,7 @@ class IRCAdapter:
     # client for flooding, however busy the realm gets.
     SEND_BURST = 4
     SEND_INTERVAL = 2.0
+    WHOX_TOKEN = "152"     # marks the replies to our own WHOX
     # The protocol itself goes at once, whatever is queued.
     IMMEDIATE = frozenset({"PONG", "PING", "NICK", "USER", "PASS", "CAP", "JOIN",
                            "WHO", "QUIT"})
@@ -608,6 +609,7 @@ class IRCAdapter:
                 f"{achievements.styled(player)}, level {player.level} {player.character_class}, "
                 f"next level in {duration(player.next_ttl)}, "
                 f"alignment {player.alignment_name}.{seasonal.honours_text(player)}"
+                f"{prestige.status(player)}"
                 f"{achievements.summary(player)}"
                 f"{achievements.rival_line(self.engine, player)}",
             )
@@ -806,7 +808,13 @@ class IRCAdapter:
                 self.members.clear()
                 self.voiced.clear()
                 self.ranks.clear()
-                self.send(f"WHO {self.cfg.channel}")
+                if self.whox:
+                    # WHOX names each one's services account too, so anyone
+                    # identified is found even when their address has moved -
+                    # a Guest nick from services, a host from another server.
+                    self.send(f"WHO {self.cfg.channel} %tcuhnfa,{self.WHOX_TOKEN}")
+                else:
+                    self.send(f"WHO {self.cfg.channel}")
                 return
             self.members.add(msg.nick.lower())
             # With extended-join the server names the joiner's services
@@ -838,6 +846,18 @@ class IRCAdapter:
                 self._prefixed("".join(c for c in flags if c in "~&@%+") + nick)
                 if nick.lower() != self.nick.lower():
                     self.members.add(nick.lower())
+                    self.resume(nick, f"{nick}!{user}@{host}")
+        elif cmd == "354":
+            # WHOX reply, fields in the protocol's order whatever we asked:
+            # me token channel user host nick flags account ("0" for none).
+            if (len(msg.params) >= 8 and msg.params[1] == self.WHOX_TOKEN
+                    and msg.params[2].lower() == channel):
+                user, host, nick, flags, account = msg.params[3:8]
+                self._prefixed("".join(c for c in flags if c in "~&@%+") + nick)
+                if nick.lower() != self.nick.lower():
+                    self.members.add(nick.lower())
+                    if account and account != "0":
+                        self.accounts[nick.lower()] = account.lower()
                     self.resume(nick, f"{nick}!{user}@{host}")
         elif cmd == "PART":
             where = msg.params[0] if msg.params else ""
@@ -882,8 +902,15 @@ class IRCAdapter:
             if msg.nick.lower() in self.voiced:      # a voice follows its nick
                 self.voiced.discard(msg.nick.lower())
                 self.voiced.add(new.lower())
+            if msg.nick.lower() in self.accounts:
+                self.accounts[new.lower()] = self.accounts.pop(msg.nick.lower())
             player = self.character_for_nick(msg.nick)
-            if player is not None:
+            if player is None:
+                # Back to the nick a login was remembered under - from a Guest
+                # nick services gave them, say: that login can resume now.
+                if new.lower() in self.members:
+                    self.resume(new, renamed(msg.prefix, new) or "")
+            else:
                 cost = self.engine.penalise(player, Penalty.NICK, platform=Platform.IRC)
                 self.bound.pop(msg.nick.lower(), None)
                 self.bind(new, player, renamed(msg.prefix, new))
