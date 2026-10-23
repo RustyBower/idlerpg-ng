@@ -181,7 +181,14 @@ def on_level(player: Player, rng: random.Random) -> list[Outcome]:
     out = []
     for level, key in LEVELS.items():
         if player.level >= level:
-            out.extend(award(player, key))
+            reached = award(player, key)
+            out.extend(reached)
+            if reached and key == "level-60":
+                # The one milestone that opens something: say what.
+                out.append(Outcome(
+                    f"{player.name} may now prestige - start over at level 0 for "
+                    f"points to spend on perks. PRESTIGE shows what it would earn.",
+                    kind="achievement", player_id=player.id))
     if any(i.tag for i in player.items):
         out.extend(award(player, "unique"))
     if _season_is("Springtide") and tally(player, "springtide-levels") >= 5:

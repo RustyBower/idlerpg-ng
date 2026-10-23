@@ -31,6 +31,7 @@ from .models import Player
 MIN_LEVEL = 60
 POINTS_AT_MIN = 2     # for reaching MIN_LEVEL
 POINTS_EVERY = 5      # and one more for every this many levels past it
+CONFIRM = "PRESTIGE confirm (on Discord, /prestige confirm:True)"
 
 
 @dataclass(frozen=True)
@@ -66,11 +67,12 @@ def _preview(player: Player) -> str:
         return (f"Prestige opens at level {MIN_LEVEL}; you are level {player.level}.")
     kept = player.perk_rank("heirloom")
     items = f"fresh items, but for your best {kept}" if kept else "fresh items"
-    return (f"PRESTIGE confirm starts {player.name} over at level 0 with {items}, "
+    return (f"Prestige would start {player.name} over at level 0 with {items}, "
             f"for {points_for(player.level)} points to spend on perks "
-            f"(you have {player.points} unspent). You keep your name, alignment "
+            f"(you have {player.points or 0} unspent). You keep your name, alignment "
             f"and perks, and gain a star. Every {POINTS_EVERY} levels you wait "
-            f"past {MIN_LEVEL} earns another point.")
+            f"past {MIN_LEVEL} earns another point. Nothing has changed yet: to "
+            f"do it, send {CONFIRM}.")
 
 
 def start_over(engine, player: Player) -> str:
@@ -97,6 +99,19 @@ def start_over(engine, player: Player) -> str:
         *achievements.on_prestige(player)])
     return (f"Reborn at level 0, ★{player.prestige}. You have {player.points} "
             f"points: PERKS shows what they buy.")
+
+
+def status(player: Player) -> str:
+    """For WHOAMI: stars, unspent points, and whether prestige is open."""
+    parts = []
+    if player.prestige:
+        parts.append(f"Prestige ★{player.prestige}.")
+    if player.points:
+        parts.append(f"{player.points} perk points unspent (PERKS).")
+    if player.level >= MIN_LEVEL:
+        parts.append(f"Prestige is open: PRESTIGE shows what it would earn "
+                     f"({points_for(player.level)} points now).")
+    return "".join(f" {p}" for p in parts)
 
 
 def _terms(perk: Perk) -> str:

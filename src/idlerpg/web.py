@@ -29,6 +29,7 @@ from .engine import MAP_X, MAP_Y
 from .lore import SEASONS, dates, heartland, season_named, season_on, today, upcoming
 from .seasonal import best as seasonal_best
 from .achievements import FEATS
+from .prestige import MIN_LEVEL, PERKS, POINTS_AT_MIN, POINTS_EVERY
 from .rules import Curve, seconds_to_reach, ttl
 from .text import duration, safe
 from .models import (
@@ -970,6 +971,14 @@ def page_game():
             f'<tr><td class="num">{lvl}</td><td class="num">{E(duration(step))}</td>'
             f'<td class="num">{E(duration(cumulative))}</td></tr>'
         )
+    perks = "".join(
+        f'<tr><td><code>{E(name)}</code></td><td class="num">{perk.most}</td>'
+        f'<td>{E(perk.text)}'
+        + (f' - {perk.cost} points a rank' if perk.cost > 1 else '')
+        + (f', and opens only after {perk.requires} ranks in other perks'
+           if perk.requires else '')
+        + '</td></tr>'
+        for name, perk in PERKS.items())
     body = f"""<h2>How to play</h2>
 <div class="card hero">
   <p style="margin:0">Join <code>{E(CHANNEL)}</code>, register, and then do nothing.
@@ -987,6 +996,8 @@ def page_game():
   <tr><th>Delete your character</th><td><code>/msg {E(BOT_NICK)} REMOVEME &lt;password&gt;</code></td></tr>
   <tr><th>Merge a second character</th><td><code>/msg {E(BOT_NICK)} MERGE &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Fight someone</th><td><code>/msg {E(BOT_NICK)} FIGHT &lt;name&gt;</code>, once a day; <code>FIGHT</code> alone shows who is in reach</td></tr>
+  <tr><th>Start over, from level {MIN_LEVEL}</th><td><code>/msg {E(BOT_NICK)} PRESTIGE</code> shows what it would earn; <code>PRESTIGE confirm</code> does it</td></tr>
+  <tr><th>Spend perk points</th><td><code>/msg {E(BOT_NICK)} PERKS</code> lists them; <code>PERK &lt;name&gt;</code> buys a rank</td></tr>
   <tr><th>Log out</th><td><code>/msg {E(BOT_NICK)} LOGOUT</code></td></tr>
 </table>
 <p class="muted">Connect to <code>irc.129irc.com</code> on port <code>6697</code> with
@@ -1007,6 +1018,8 @@ that stable.</p>
   <tr><th>Delete your character</th><td><code>!removeme &lt;password&gt;</code></td></tr>
   <tr><th>Merge a second character</th><td><code>!merge &lt;name&gt; &lt;password&gt;</code></td></tr>
   <tr><th>Fight someone</th><td><code>!fight &lt;name&gt;</code>, once a day; <code>!fight</code> alone shows who is in reach</td></tr>
+  <tr><th>Start over, from level {MIN_LEVEL}</th><td><code>!prestige</code> shows what it would earn; <code>!prestige confirm</code> does it</td></tr>
+  <tr><th>Spend perk points</th><td><code>!perks</code> lists them; <code>!perk &lt;name&gt;</code> buys a rank</td></tr>
   <tr><th>Commands</th><td><code>!help</code></td></tr>
 </table>
 <p class="muted">Every command is also a slash command - <code>/register</code>,
@@ -1062,6 +1075,20 @@ once a day for any pair.</p>
 early and slow later. {E(WALL)}</p>
 <table><thead><tr><th class="num">Level</th><th class="num">That level costs</th>
 <th class="num">Total to reach it</th></tr></thead><tbody>{rows}</tbody></table>
+
+<h2>Prestige and perks</h2>
+<p class="muted">From level {MIN_LEVEL} you may start over. <code>PRESTIGE</code>
+(<code>!prestige</code> on Discord) shows what it would do and changes nothing;
+<code>PRESTIGE confirm</code> does it. You go back to level 0 with fresh items, and
+keep your name, alignment, achievements and any perks you have bought. You gain a
+&#9733; beside your name - the standings rank prestige before level - and points to
+spend on perks: {POINTS_AT_MIN} for reaching {MIN_LEVEL}, and one more for every
+{POINTS_EVERY} levels past it. Prestige is never forced, but the climb past
+{MIN_LEVEL} gets steep fast, so waiting for more points has a real price.</p>
+<p class="muted"><code>PERKS</code> lists what you have and what they cost;
+<code>PERK &lt;name&gt;</code> buys one rank. Unless noted, a rank costs a point.</p>
+<table><thead><tr><th>Perk</th><th class="num">Most ranks</th><th>Each rank</th></tr></thead>
+<tbody>{perks}</tbody></table>
 
 <h2>Items, alignment and events</h2>
 <p class="muted">You find items in ten slots - amulet, charm, helm, boots, gloves,

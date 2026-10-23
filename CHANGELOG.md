@@ -5,6 +5,14 @@ Releases before 0.11.0 are in the git history.
 
 ## 0.30.0 - 2026-10-23
 
+- **Prestige explains itself.** Reaching level 60 now tells the realm that
+  the character may prestige and how to see what it would earn. `WHOAMI` (and
+  the Discord `/whoami` card) shows your stars, any unspent perk points, and,
+  from level 60, that prestige is open and how many points it would pay. The
+  site's How to play page has a Prestige and perks section listing every perk,
+  and `PRESTIGE` and `PERKS` in its command tables. `PRESTIGE` on its own
+  now says plainly that nothing has changed yet and that `PRESTIGE confirm`
+  is what does it.
 - **Logins survive a netsplit that takes the bot with it.** When the bot
   reconnected it recognised players only by their exact `nick!user@host`, so
   anyone services had moved to a Guest nick, or who came back on another host,

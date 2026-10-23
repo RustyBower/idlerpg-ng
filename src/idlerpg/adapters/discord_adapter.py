@@ -556,6 +556,12 @@ class DiscordAdapter(discord.Client):
         embed.add_field(name="Items", value=str(item_sum(player)))
         if player.prestige:
             embed.add_field(name="Prestige", value=f"★{player.prestige}")
+        if player.points:
+            embed.add_field(name="Perk points", value=f"{player.points} unspent (`/perks`)")
+        if player.level >= prestige.MIN_LEVEL:
+            embed.add_field(name="Prestige open", inline=False, value=(
+                f"`/prestige` shows what starting over would earn: "
+                f"{prestige.points_for(player.level)} points now."))
         earned = sum(1 for a in player.achievements if a.key in achievements.BY_KEY)
         embed.add_field(name="Achievements", value=f"{earned} of {len(achievements.FEATS)}")
         nemesis = achievements.rival(self.engine, player)

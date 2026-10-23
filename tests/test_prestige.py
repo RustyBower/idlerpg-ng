@@ -46,6 +46,7 @@ class TestStartingOver:
         p = veteran(engine, level=62)
         reply = do(engine, p, "PRESTIGE")
         assert "2 points" in reply and p.level == 62
+        assert "Nothing has changed yet" in reply and "PRESTIGE confirm" in reply
 
     def test_confirm_resets_and_pays(self, engine):
         p = veteran(engine, level=60)
@@ -169,6 +170,32 @@ class TestOnThePlatforms:
             assert "2 points" in "\n".join(irc.writer.lines)
             irc.handle(parse(":vet!u@h PRIVMSG idlerpg :PERKS"))
             assert all(len(line) < 512 for line in irc.writer.lines)
+            irc.handle(parse(":vet!u@h PRIVMSG idlerpg :WHOAMI"))
+            assert "Prestige is open" in irc.writer.lines[-1]
+            assert all(len(line) < 512 for line in irc.writer.lines)
+
+
+class TestTellingPlayers:
+    def test_reaching_60_says_prestige_has_opened(self, engine):
+        from idlerpg import achievements
+        p = veteran(engine, level=60)
+        said = [o.message for o in achievements.on_level(p, random.Random(1))]
+        assert any("may now prestige" in m for m in said)
+        assert not achievements.on_level(p, random.Random(1))   # said once
+
+    def test_whoami_status(self, engine):
+        p = veteran(engine, level=59)
+        assert prestige.status(p) == ""
+        p.level = 65
+        assert "3 points now" in prestige.status(p)
+        do(engine, p, "PRESTIGE confirm")
+        assert prestige.status(p) == " Prestige ★1. 3 perk points unspent (PERKS)."
+
+    def test_how_to_play_explains_it(self):
+        from idlerpg import web
+        page = web.page_game()
+        assert "Prestige and perks" in page and "PRESTIGE confirm" in page
+        assert all(f"<code>{name}</code>" in page for name in prestige.PERKS)
 
 
 class TestPointsAreScarce:
