@@ -31,7 +31,8 @@ from .models import Player
 MIN_LEVEL = 60
 POINTS_AT_MIN = 2     # for reaching MIN_LEVEL
 POINTS_EVERY = 5      # and one more for every this many levels past it
-CONFIRM = "PRESTIGE confirm (on Discord, /prestige confirm:True)"
+CONFIRM = ("PRESTIGE confirm (on Discord, !prestige confirm, or /prestige "
+           "with its confirm option set to True)")
 
 
 @dataclass(frozen=True)
@@ -160,13 +161,19 @@ def buy(engine, player: Player, name: str) -> str:
 VERBS = frozenset({"PRESTIGE", "PERKS", "PERK"})
 
 
+def _confirmed(args: list[str]) -> bool:
+    """``confirm``, and the slash form typed out as text: ``confirm: True``."""
+    word, _, value = " ".join(args).partition(":")
+    return word.strip().lower() == "confirm" and value.strip().lower() in ("", "true")
+
+
 def command(engine, player: Player | None, verb: str, args: list[str]) -> str:
     """PRESTIGE [confirm], PERKS and PERK <name>, for either platform."""
     if player is None:
         return "Log in first."
     verb = verb.upper()
     if verb == "PRESTIGE":
-        if args and args[0].lower() == "confirm":
+        if _confirmed(args):
             return start_over(engine, player)
         return _preview(player)
     if verb == "PERKS":

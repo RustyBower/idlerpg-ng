@@ -3,6 +3,15 @@
 Newest first. Lines marked *Operators* matter only to whoever runs the bot.
 Releases before 0.11.0 are in the git history.
 
+## 0.30.1 - 2026-10-27
+
+- **`!prestige confirm` is what the bot tells Discord players to send.**
+  `PRESTIGE` told Discord players to send `/prestige confirm:True`, the
+  slash command written out the way Discord shows it. Players who typed
+  that after `!prestige` sent `confirm:` as the first word, so the bot only
+  repeated the preview. Now the reply names `!prestige confirm` and the
+  slash command's confirm option, and `confirm: True` typed as text works too.
+
 ## 0.30.0 - 2026-10-23
 
 - **Prestige explains itself.** Reaching level 60 now tells the realm that

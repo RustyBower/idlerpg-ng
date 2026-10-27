@@ -57,6 +57,17 @@ class TestStartingOver:
         assert p.next_ttl == int(ttl(0, engine.curve))
         assert any(o.kind == "prestige" for o in engine.tick(1))
 
+    @pytest.mark.parametrize("line", ["PRESTIGE confirm: True", "PRESTIGE confirm:true"])
+    def test_the_slash_form_typed_out_still_confirms(self, engine, line):
+        p = veteran(engine, level=60)
+        do(engine, p, line)
+        assert (p.level, p.prestige) == (0, 1)
+
+    def test_confirm_false_does_not(self, engine):
+        p = veteran(engine, level=60)
+        assert "Nothing has changed yet" in do(engine, p, "PRESTIGE confirm: False")
+        assert (p.level, p.prestige) == (60, 0)
+
     def test_heirloom_keeps_the_best_items(self, engine):
         p = veteran(engine)
         p.set_perk_rank("heirloom", 2)
